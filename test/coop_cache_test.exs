@@ -24,6 +24,7 @@ defmodule CoopCacheTest do
     # see if it was only processed once
     assert true  == wait_for(:processed)
     assert false == wait_for(:processed, 0)
+    # state should be clean
     assert %{data: [key: :test_value], locks: [], subs: []} == GenServer.call(:test_cache, :state)
   end
 

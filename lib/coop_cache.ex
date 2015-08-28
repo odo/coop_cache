@@ -10,8 +10,8 @@ defmodule CoopCache do
   def cached(name, key, fun) do
     case :ets.lookup(table_name(name), key) do
       [] ->
-        GenServer.call(table_name(name), {:write, key, fun})
-      [{key, value}] ->
+        GenServer.call(table_name(name), {:write_or_wait, key, fun})
+      [{_, value}] ->
         value
     end
   end
@@ -24,7 +24,7 @@ defmodule CoopCache do
     {:ok, state}
   end
 
-  def handle_call({:write, key, fun}, from, state = %{ locks: locks, subs: subs }) do
+  def handle_call({:write_or_wait, key, fun}, from, state = %{ locks: locks, subs: subs }) do
     case :ets.lookup(locks, key) do
       [{key}] ->
         :ets.insert(subs,  {key, from})
@@ -44,7 +44,7 @@ defmodule CoopCache do
     :ets.insert(data, {key, value})
     Enum.each(
       :ets.lookup(subs, key),
-      fn({key, from}) -> GenServer.reply(from, value) end
+      fn({_, from}) -> GenServer.reply(from, value) end
     )
     :ets.delete(subs, key)
     :ets.delete(locks, key)
