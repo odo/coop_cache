@@ -14,7 +14,7 @@ defmodule CoopCacheTest do
   end
 
   test "mass insertion" do
-    test_count = 100
+    test_count = 1000
     CoopCache.start(:test)
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
@@ -26,11 +26,15 @@ defmodule CoopCacheTest do
     assert false == wait_for(:processed, 0)
     # state should be clean
     assert %{data: [key: :test_value], locks: [], subs: []} == GenServer.call(:test_cache, :state)
+    # test a few cache hits
+    Enum.each(Enum.to_list(1..10), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
+    # see if exactly all clients got the value
+    Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
   end
 
   def insert_and_reply(from) do
     fun = fn() ->
-      :timer.sleep(50)
+      :timer.sleep(1)
       send(from, :processed)
       :test_value
     end

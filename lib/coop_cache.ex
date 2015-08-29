@@ -3,8 +3,7 @@ defmodule CoopCache do
   use GenServer
 
   def start(name)  do
-    {:ok, pid} = GenServer.start_link(__MODULE__, name, name: table_name(name))
-    pid
+    GenServer.start_link(__MODULE__, name, name: table_name(name))
   end
 
   def cached(name, key, fun) do
@@ -12,6 +11,7 @@ defmodule CoopCache do
       [] ->
         GenServer.call(table_name(name), {:write_or_wait, key, fun})
       [{_, value}] ->
+        IO.puts("cache hit")
         value
     end
   end
@@ -24,14 +24,26 @@ defmodule CoopCache do
     {:ok, state}
   end
 
-  def handle_call({:write_or_wait, key, fun}, from, state = %{ locks: locks, subs: subs }) do
+  def handle_call({:write_or_wait, key, fun}, from, state = %{ data: data, locks: locks, subs: subs }) do
     case :ets.lookup(locks, key) do
       [{key}] ->
-        :ets.insert(subs,  {key, from})
+          # processing is in progress
+          # we subscribe
+          :ets.insert(subs,  {key, from})
       [] ->
-        :ets.insert(locks, {key})
-        :ets.insert(subs,  {key, from})
-        spawn(__MODULE__, :process_async, [key, fun, self()])
+        case :ets.lookup(data, key) do
+          [{_, value}] ->
+            # we did not see the result outside the process
+            # but now processing is done
+            # we reply directly
+            GenServer.reply(from, value)
+          [] ->
+            # the key is completely new
+            # lock, subscribe and spawn
+            :ets.insert(locks, {key})
+            :ets.insert(subs,  {key, from})
+            spawn(__MODULE__, :process_async, [key, fun, self()])
+        end
     end
     {:noreply, state}
   end
