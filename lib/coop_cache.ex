@@ -1,30 +1,35 @@
 defmodule CoopCache do
+  require Logger
 
   use GenServer
 
-  def start(name)  do
-    GenServer.start_link(__MODULE__, name, name: table_name(name))
+  def start_link(name, options) do
+    GenServer.start_link(__MODULE__, [name, options], name: table_name(name))
   end
 
   def cached(name, key, fun) do
     case :ets.lookup(table_name(name), key) do
       [] ->
-        GenServer.call(table_name(name), {:write_or_wait, key, fun})
+        case GenServer.call(table_name(name), {:write_or_wait, key, fun}) do
+          {:error, :cache_full} ->
+            fun.()
+          value ->
+            value
+        end
       [{_, value}] ->
-        IO.puts("cache hit")
         value
     end
   end
 
-  def init(name) do
-    data  = :ets.new(table_name(name), [:named_table, :bag, {:read_concurrency, true}])
-    locks = :ets.new(:locks, [:bag])
-    subs  = :ets.new(:subs, [:bag])
-    state = %{ data: data, locks: locks, subs: subs  }
+  def init([name, %{memory_limit: memory_limit}]) when is_atom(name) and is_integer(memory_limit) do
+    data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
+    locks = :ets.new(:locks, [:set])
+    subs  = :ets.new(:subs,  [:bag])
+    state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, full: false }
     {:ok, state}
   end
 
-  def handle_call({:write_or_wait, key, fun}, from, state = %{ data: data, locks: locks, subs: subs }) do
+  def handle_call({:write_or_wait, key, fun}, from, state = %{ data: data, locks: locks, subs: subs, full: full }) do
     case :ets.lookup(locks, key) do
       [{key}] ->
           # processing is in progress
@@ -34,33 +39,48 @@ defmodule CoopCache do
         case :ets.lookup(data, key) do
           [{_, value}] ->
             # we did not see the result outside the process
-            # but now processing is done
+            # but now processing is done so
             # we reply directly
             GenServer.reply(from, value)
           [] ->
-            # the key is completely new
-            # lock, subscribe and spawn
-            :ets.insert(locks, {key})
-            :ets.insert(subs,  {key, from})
-            spawn(__MODULE__, :process_async, [key, fun, self()])
+            case full do
+              false ->
+                # the key is completely new
+                # lock, subscribe and spawn
+                :ets.insert(locks, {key})
+                :ets.insert(subs,  {key, from})
+                spawn(__MODULE__, :process_async, [key, fun, self()])
+              true ->
+                GenServer.reply(from, {:error, :cache_full})
+            end
         end
     end
     {:noreply, state}
   end
 
   def handle_call(:state, _, state = %{ data: data, locks: locks, subs: subs}) do
-    {:reply, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)}, state}
+    {:reply, Map.merge(state, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)}), state}
   end
 
-  def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs }) do
+  def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit }) do
+    # insert the actual data
     :ets.insert(data, {key, value})
+    # publish data to all subscribers
     Enum.each(
       :ets.lookup(subs, key),
       fn({_, from}) -> GenServer.reply(from, value) end
     )
+    # claen up
     :ets.delete(subs, key)
     :ets.delete(locks, key)
-    {:noreply, state}
+    # see if cache is full
+    case :ets.info(data, :memory) >= memory_limit do
+      true ->
+        Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
+        {:noreply, %{ state | full: true }}
+      false ->
+        {:noreply, state}
+    end
   end
 
   def process_async(key, fun, sender) do

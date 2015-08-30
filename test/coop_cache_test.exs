@@ -15,30 +15,44 @@ defmodule CoopCacheTest do
 
   test "mass insertion" do
     test_count = 1000
-    CoopCache.start(:test)
+    CoopCache.start_link(:test, %{ memory_limit: 1000000})
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
     Enum.each(Enum.to_list(1..test_count), fn(_) -> assert true == wait_for({:value, :test_value}) end )
     assert false == wait_for({:value, :test_value}, 0)
     # see if it was only processed once
-    assert true  == wait_for(:processed)
-    assert false == wait_for(:processed, 0)
+    assert true  == wait_for({:processed, :test_value})
+    assert false == wait_for({:processed, :test_value}, 0)
     # state should be clean
-    assert %{data: [key: :test_value], locks: [], subs: []} == GenServer.call(:test_cache, :state)
+    assert %{data: [test: :test_value], locks: [], subs: [], full: false, memory_limit: 1000000} == GenServer.call(:test_cache, :state)
     # test a few cache hits
     Enum.each(Enum.to_list(1..10), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
     Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
   end
 
-  def insert_and_reply(from) do
+  test "memory_limit" do
+    CoopCache.start_link(:test, %{ memory_limit: 0})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert true  == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, :test_value1})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key2, :test_value2}] )
+    assert true == wait_for({:value, :test_value2})
+    assert false == wait_for({:processed, :test_value1}, 0)
+    assert true  == wait_for({:processed, :test_value2})
+    assert false == wait_for({:processed, :test_value2}, 0)
+    # state should be clean
+    assert %{data: [key1: :test_value1], locks: [], subs: [], full: true, memory_limit: 0 } == GenServer.call(:test_cache, :state)
+  end
+
+  def insert_and_reply(from, {key, data} \\ {:test, :test_value}) do
     fun = fn() ->
       :timer.sleep(1)
-      send(from, :processed)
-      :test_value
+      send(from, {:processed, data})
+      data
     end
-    value = CoopCache.cached(:test, :key, fun)
+    value = CoopCache.cached(:test, key, fun)
     send(from, {:value, value})
   end
 
