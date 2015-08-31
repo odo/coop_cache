@@ -30,20 +30,6 @@ defmodule CoopCache do
     GenServer.start_link(__MODULE__, [name, options], name: table_name(name))
   end
 
-  # def cached(name, key, fun) do
-  #   case :ets.lookup(table_name(name), key) do
-  #     [] ->
-  #       case GenServer.call(table_name(name), {:write_or_wait, key, fun}) do
-  #         {:error, :cache_full} ->
-  #           fun.()
-  #         value ->
-  #           value
-  #       end
-  #     [{_, value}] ->
-  #       value
-  #   end
-  # end
-
   def init([name, %{memory_limit: memory_limit}]) when is_atom(name) and is_integer(memory_limit) do
     data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
     locks = :ets.new(:locks, [:set])
