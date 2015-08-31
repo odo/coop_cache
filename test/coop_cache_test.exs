@@ -1,5 +1,6 @@
 defmodule CoopCacheTest do
   use ExUnit.Case
+  import CoopCache
 
   defmacro wait_for(msg, timeout \\ 1000) do
     quote do
@@ -47,12 +48,12 @@ defmodule CoopCacheTest do
   end
 
   def insert_and_reply(from, {key, data} \\ {:test, :test_value}) do
-    fun = fn() ->
+    value =
+    cached(:test, key) do
       :timer.sleep(1)
       send(from, {:processed, data})
       data
     end
-    value = CoopCache.cached(:test, key, fun)
     send(from, {:value, value})
   end
 
