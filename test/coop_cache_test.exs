@@ -33,6 +33,15 @@ defmodule CoopCacheTest do
     Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
   end
 
+  test "resetting" do
+    CoopCache.start_link(:test, %{ memory_limit: 1000000})
+    # do insert
+    spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, :reset_value}, 10])
+    :timer.sleep(5)
+    CoopCache.reset(:test)
+    assert true == wait_for({:value, :reset_value})
+  end
+
   test "memory_limit" do
     CoopCache.start_link(:test, %{ memory_limit: 0})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
@@ -47,10 +56,10 @@ defmodule CoopCacheTest do
     assert %{data: [key1: :test_value1], locks: [], subs: [], full: true, memory_limit: 0, reset_index: 0 } == GenServer.call(:test_cache, :state)
   end
 
-  def insert_and_reply(from, {key, data} \\ {:test, :test_value}) do
+  def insert_and_reply(from, {key, data} \\ {:test, :test_value}, sleep_for \\ 1) do
     value =
     cached(:test, key) do
-      :timer.sleep(1)
+      :timer.sleep(sleep_for)
       send(from, {:processed, data})
       data
     end

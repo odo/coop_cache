@@ -71,20 +71,24 @@ defmodule CoopCache do
     {:noreply, state}
   end
 
-  def handle_call(:reset, _, state = %{ data: data, locks: locks, subs: subs }) do
-    # tell all clients we are resetting
+  def handle_call(:reset, _, state = %{ data: data, locks: locks, subs: subs, reset_index: reset_index }) do
+    reset_index = reset_index + 1
+    # we need to recalculate everything that is in flight
     Enum.each(
-      :ets.tab2list(subs),
-      fn({key, subscriber}) ->
-        GenServer.reply(subscriber, {:error, :resetting})
+      :ets.tab2list(locks),
+      fn({key, fun}) ->
+        spawn(__MODULE__, :process_async, [key, fun, self(), reset_index])
       end
     )
-    reset_state = %{
-      data: :ets.delete_all_objects(data),
-      locks: :ets.delete_all_objects(locks),
-      subs: :ets.delete_all_objects(subs),
-      full: false
-    }
+    :ets.delete_all_objects(data)
+    reset_state = Map.merge(
+      state,
+      %{
+        full: false,
+        reset_index: reset_index
+      }
+    )
+    {:reply, :ok, reset_state}
   end
 
   def handle_call(:state, _, state = %{ data: data, locks: locks, subs: subs}) do
@@ -110,6 +114,10 @@ defmodule CoopCache do
       false ->
         {:noreply, state}
     end
+  end
+
+  def handle_info({:value, key, value, reset_index}, state) do
+    {:noreply, state}
   end
 
   def process_async(key, fun, sender, reset_index) do
