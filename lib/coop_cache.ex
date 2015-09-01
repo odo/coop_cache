@@ -81,13 +81,7 @@ defmodule CoopCache do
       end
     )
     :ets.delete_all_objects(data)
-    reset_state = Map.merge(
-      state,
-      %{
-        full: false,
-        reset_index: reset_index
-      }
-    )
+    reset_state = Map.merge( state, %{ full: false, reset_index: reset_index } )
     {:reply, :ok, reset_state}
   end
 
