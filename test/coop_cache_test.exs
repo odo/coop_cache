@@ -36,10 +36,13 @@ defmodule CoopCacheTest do
   test "resetting" do
     CoopCache.start_link(:test, %{ memory_limit: 1000000})
     # do insert
-    spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, :reset_value}, 10])
+    Application.put_env(:test, :test, :before_test)
+    fun = fn() -> Application.get_env(:test, :test) end
+    spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, fun}, 10])
     :timer.sleep(5)
+    Application.put_env(:test, :test, :after_test)
     CoopCache.reset(:test)
-    assert true == wait_for({:value, :reset_value})
+    assert true == wait_for({:value, :after_test})
   end
 
   test "memory_limit" do
@@ -59,9 +62,14 @@ defmodule CoopCacheTest do
   def insert_and_reply(from, {key, data} \\ {:test, :test_value}, sleep_for \\ 1) do
     value =
     cached(:test, key) do
+      result =
+      case is_function(data) do
+        true  -> data.()
+        false -> data
+      end
       :timer.sleep(sleep_for)
-      send(from, {:processed, data})
-      data
+      send(from, {:processed, result})
+      result
     end
     send(from, {:value, value})
   end
