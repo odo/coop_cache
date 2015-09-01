@@ -26,7 +26,7 @@ defmodule CoopCacheTest do
     assert true  == wait_for({:processed, :test_value})
     assert false == wait_for({:processed, :test_value}, 0)
     # state should be clean
-    assert %{data: [test: :test_value], locks: [], subs: [], full: false, memory_limit: 1000000} == GenServer.call(:test_cache, :state)
+    assert %{data: [test: :test_value], locks: [], subs: [], full: false, memory_limit: 1000000, reset_index: 0} == GenServer.call(:test_cache, :state)
     # test a few cache hits
     Enum.each(Enum.to_list(1..10), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -44,7 +44,7 @@ defmodule CoopCacheTest do
     assert true  == wait_for({:processed, :test_value2})
     assert false == wait_for({:processed, :test_value2}, 0)
     # state should be clean
-    assert %{data: [key1: :test_value1], locks: [], subs: [], full: true, memory_limit: 0 } == GenServer.call(:test_cache, :state)
+    assert %{data: [key1: :test_value1], locks: [], subs: [], full: true, memory_limit: 0, reset_index: 0 } == GenServer.call(:test_cache, :state)
   end
 
   def insert_and_reply(from, {key, data} \\ {:test, :test_value}) do

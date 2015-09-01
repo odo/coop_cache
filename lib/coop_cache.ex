@@ -30,17 +30,21 @@ defmodule CoopCache do
     GenServer.start_link(__MODULE__, [name, options], name: table_name(name))
   end
 
+  def reset(name) do
+    GenServer.call(table_name(name), :reset)
+  end
+
   def init([name, %{memory_limit: memory_limit}]) when is_atom(name) and is_integer(memory_limit) do
     data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
     locks = :ets.new(:locks, [:set])
     subs  = :ets.new(:subs,  [:bag])
-    state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, full: false }
+    state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, full: false, reset_index: 0 }
     {:ok, state}
   end
 
-  def handle_call({:write_or_wait, key, fun}, from, state = %{ data: data, locks: locks, subs: subs, full: full }) do
+  def handle_call({:write_or_wait, key, fun}, from, state = %{ data: data, locks: locks, subs: subs, full: full, reset_index: reset_index }) do
     case :ets.lookup(locks, key) do
-      [{key}] ->
+      [{key, _}] ->
           # processing is in progress
           # we subscribe
           :ets.insert(subs,  {key, from})
@@ -56,9 +60,9 @@ defmodule CoopCache do
               false ->
                 # the key is completely new
                 # lock, subscribe and spawn
-                :ets.insert(locks, {key})
+                :ets.insert(locks, {key, fun})
                 :ets.insert(subs,  {key, from})
-                spawn(__MODULE__, :process_async, [key, fun, self()])
+                spawn(__MODULE__, :process_async, [key, fun, self(), reset_index])
               true ->
                 GenServer.reply(from, {:error, :cache_full})
             end
@@ -67,17 +71,33 @@ defmodule CoopCache do
     {:noreply, state}
   end
 
+  def handle_call(:reset, _, state = %{ data: data, locks: locks, subs: subs }) do
+    # tell all clients we are resetting
+    Enum.each(
+      :ets.tab2list(subs),
+      fn({key, subscriber}) ->
+        GenServer.reply(subscriber, {:error, :resetting})
+      end
+    )
+    reset_state = %{
+      data: :ets.delete_all_objects(data),
+      locks: :ets.delete_all_objects(locks),
+      subs: :ets.delete_all_objects(subs),
+      full: false
+    }
+  end
+
   def handle_call(:state, _, state = %{ data: data, locks: locks, subs: subs}) do
     {:reply, Map.merge(state, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)}), state}
   end
 
-  def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit }) do
+  def handle_info({:value, key, value, reset_index}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, reset_index: reset_index }) do
     # insert the actual data
     :ets.insert(data, {key, value})
     # publish data to all subscribers
     Enum.each(
       :ets.lookup(subs, key),
-      fn({_, from}) -> GenServer.reply(from, value) end
+      fn({_, subscriber}) -> GenServer.reply(subscriber, value) end
     )
     # claen up
     :ets.delete(subs, key)
@@ -92,9 +112,9 @@ defmodule CoopCache do
     end
   end
 
-  def process_async(key, fun, sender) do
+  def process_async(key, fun, sender, reset_index) do
     value = fun.()
-    send(sender, {:value, key, value})
+    send(sender, {:value, key, value, reset_index})
   end
 
   def table_name(name) do
