@@ -22,3 +22,7 @@ use Mix.Config
 # here (which is why it is important to import them last).
 #
 #     import_config "#{Mix.env}.exs"
+
+config :coop_cache, caches: [
+  {:test_cache, %{ memory_limit: 1024 * 1024 }}
+  ]

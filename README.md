@@ -1,25 +1,40 @@
 CoopCache
 =========
 
-cache hit
-  read from ets (key) -> data
+CoopCache (cooperative cache) is a specialized cache for Erlang/Elixir applications.
 
-cache miss cold
-  read from ets (key) -> empty
-  call manager for write (key, fun) -> :wait_for_completion
-  receive ({:cache_available, key})
-  read from ets (key) -> data
+# Use case
 
-    manager writes lock
-    manager writes sender as subscribed
-    manager spawns with fun
-    handle_info({:cache_data_ready, data})
-    write cache
-    send ({:cache_available, key}) to all subscibers
+* values are expensive to generate
+* there is a finite and foreseeable number of items
+* you don't need to invalidate single values
 
-cache in progress
+# Properties
 
-  read from ets (key) -> empty
-  call manager for write (key, fun) -> :wait_for_completion
-    manager checks lock
-    finds lock and subscribes sender
+The main advantage of CoopCache is that every value is computed only once even when requested at a high frequency on a cold cache.
+
+As values are written the cache grows until hitting a fized memory limit. After the that, new values will not be cached and the computation will more expensive due to an additional roundtrip to the server. 
+ 
+The memory limit is intended as a safty cap and should normally never be reached.
+
+The cache can be reset as a whole. This will handle the in flight computation of values so from the outside every reply after the reset will have been computed after the reset even if the request was send before.
+
+# Usage
+
+Mix configuration:
+
+```elixir
+config :coop_cache,
+	caches: [ {:test_cache, %{ memory_limit: 1024 * 1024 }} ]
+```
+
+in the code:
+
+```elixir
+import CoopCache
+
+cached(:test_cache, :my_key) do
+	some_expensive_operation()
+end
+```
+ 

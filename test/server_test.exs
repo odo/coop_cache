@@ -1,4 +1,4 @@
-defmodule CoopCacheTest do
+defmodule CoopCache.ServerTest do
   use ExUnit.Case
   import CoopCache
 
@@ -16,7 +16,7 @@ defmodule CoopCacheTest do
 
   test "mass insertion" do
     test_count = 1000
-    CoopCache.start_link(:test, %{ memory_limit: 1000000})
+    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000})
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -34,19 +34,19 @@ defmodule CoopCacheTest do
   end
 
   test "resetting" do
-    CoopCache.start_link(:test, %{ memory_limit: 1000000})
+    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000})
     # do insert
     Application.put_env(:test, :test, :before_test)
     fun = fn() -> Application.get_env(:test, :test) end
     spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, fun}, 10])
     :timer.sleep(5)
     Application.put_env(:test, :test, :after_test)
-    CoopCache.reset(:test)
+    CoopCache.Server.reset(:test)
     assert true == wait_for({:value, :after_test})
   end
 
   test "memory_limit" do
-    CoopCache.start_link(:test, %{ memory_limit: 0})
+    CoopCache.Server.start_link(:test, %{ memory_limit: 0})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
