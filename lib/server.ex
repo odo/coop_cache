@@ -48,13 +48,11 @@ defmodule CoopCache.Server do
                 # lock, subscribe and spawn
                 :ets.insert(locks, {key, fun})
                 Enum.each(nodes, fn(node) ->
-                  IO.puts("send lock: #{inspect({node, table_name(name)})}")
                   send({table_name(name), node}, {:lock, key, fun})
                   end)
                 :ets.insert(subs,  {key, from})
                 spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, reset_index])
               true ->
-                IO.puts("full, not writing")
                 GenServer.reply(from, {:error, :cache_full})
             end
         end
@@ -81,30 +79,40 @@ defmodule CoopCache.Server do
     {:reply, Map.merge(state, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)}), state}
   end
 
-  def handle_info({:lock, key, fun}, state = %{ locks: locks }) do
-    IO.puts("remote lock: #{inspect({key})}")
-    :ets.insert(locks, {key, fun})
+  def handle_info({:lock, key, fun}, state = %{ data: data, locks: locks }) do
+    case {:ets.lookup(locks, key), :ets.lookup(data, key)}  do
+      {[], []} ->
+        :ets.insert(locks, {key, fun})
+      _  ->
+        :noop
+    end
     {:noreply, state}
   end
 
   def handle_info({:value, key, value, reset_index}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, reset_index: reset_index }) do
-    # insert the actual data
-    :ets.insert(data, {key, value})
-    # publish data to all subscribers
-    Enum.each(
-      :ets.lookup(subs, key),
-      fn({_, subscriber}) -> GenServer.reply(subscriber, value) end
-    )
-    # claen up
-    :ets.delete(subs, key)
-    :ets.delete(locks, key)
-    # see if cache is full
-    IO.puts("menory #{:ets.info(data, :memory)} >= #{memory_limit}")
-    case :ets.info(data, :memory) >= memory_limit do
-      true ->
-        Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
-        {:noreply, %{ state | full: true }}
-      false ->
+    # this might be a value arriving from remote
+    # while the local value was already written
+    case :ets.lookup(data, key) do
+      [] ->
+        # insert the actual data
+        :ets.insert(data, {key, value})
+        # publish data to all subscribers
+        Enum.each(
+          :ets.lookup(subs, key),
+          fn({_, subscriber}) -> GenServer.reply(subscriber, value) end
+        )
+        # claen up
+        :ets.delete(subs, key)
+        :ets.delete(locks, key)
+        # see if cache is full
+        case :ets.info(data, :memory) >= memory_limit do
+          true ->
+            Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
+            {:noreply, %{ state | full: true }}
+          false ->
+            {:noreply, state}
+        end
+      _ ->
         {:noreply, state}
     end
   end
@@ -114,7 +122,7 @@ defmodule CoopCache.Server do
   end
 
   def handle_info(msg, state) do
-    IO.puts("unexpected message: #{inspect(msg)}")
+    Logger.error("unexpected message: #{inspect(msg)}")
     {:noreply, state}
   end
 

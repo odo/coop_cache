@@ -73,6 +73,88 @@ defmodule CoopCache.ServerTest do
     assert [] == state.subs
   end
 
+  # * local lock, local subscribe
+  # * local value
+  # * remote lock
+  # * remote value
+  test "distribution 1" do
+    never = fn() -> :timer.sleep(1000000) end
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+
+    {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
+
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_llls)
+    # from here on, nothing should change
+    assert true == wait_for({:ref, :value_local})
+    snapshot_lv = snapshot_state(state_lv)
+
+    {:noreply, state_rl}   = CoopCache.Server.handle_info({:lock, :key, never}, state_lv)
+    snapshot_rl = snapshot_state(state_rl)
+    assert snapshot_rl == snapshot_lv
+
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_rl)
+    snapshot_rv = snapshot_state(state_rv)
+    assert snapshot_lv == snapshot_rv
+  end
+
+  # * local lock, local subscribe
+  # * remote lock
+  # * local value
+  # * remote value
+  test "distribution 2" do
+    never = fn() -> :timer.sleep(1000000) end
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+
+    {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
+    snapshot_llls = snapshot_state(state_llls)
+    assert [key: _] = snapshot_llls.locks
+
+    {:noreply, state_rl}   = CoopCache.Server.handle_info({:lock, :key, never}, state_llls)
+    snapshot_rl = snapshot_state(state_rl)
+    assert snapshot_rl == snapshot_llls
+
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_rl)
+    assert true == wait_for({:ref, :value_local})
+    snapshot_lv = snapshot_state(state_lv)
+    assert []                   == snapshot_lv.locks
+    assert [key: :value_local] == snapshot_lv.data
+
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_lv)
+    snapshot_rv = snapshot_state(state_rv)
+    assert snapshot_lv == snapshot_rv
+  end
+
+  # * local lock, local subscribe
+  # * remote lock
+  # * remote value
+  # * local value
+  test "distribution 3" do
+    never = fn() -> :timer.sleep(1000000) end
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+
+    {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
+    snapshot_llls = snapshot_state(state_llls)
+    assert [key: _] = snapshot_llls.locks
+
+    {:noreply, state_rl}   = CoopCache.Server.handle_info({:lock, :key, never}, state_llls)
+    snapshot_rl = snapshot_state(state_rl)
+    assert snapshot_rl == snapshot_llls
+
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_rl)
+    assert true == wait_for({:ref, :value_remote})
+    snapshot_rv = snapshot_state(state_rv)
+    assert []                   == snapshot_rv.locks
+    assert [key: :value_remote] == snapshot_rv.data
+
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_rv)
+    snapshot_lv = snapshot_state(state_lv)
+    assert snapshot_lv == snapshot_rv
+  end
+
+  def snapshot_state(state  = %{ data: data, locks: locks, subs: subs}) do
+    Map.merge(state, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)})
+  end
+
   def insert_and_reply(from, {key, data} \\ {:test, :test_value}, sleep_for \\ 1) do
     value =
     cached(:test, key) do
