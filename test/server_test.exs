@@ -1,5 +1,5 @@
 defmodule CoopCache.ServerTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   import CoopCache
 
   defmacro wait_for(msg, timeout \\ 1000) do
@@ -14,6 +14,14 @@ defmodule CoopCache.ServerTest do
     end
   end
 
+  setup do
+    case :erlang.whereis(:test_cache) do
+      :undefined -> :noop
+      pid        -> :erlang.exit(pid, :ok)
+    end
+    :ok
+  end
+
   test "mass insertion" do
     test_count = 1000
     CoopCache.Server.start_link(:test, %{ memory_limit: 1000000})
@@ -26,7 +34,10 @@ defmodule CoopCache.ServerTest do
     assert true  == wait_for({:processed, :test_value})
     assert false == wait_for({:processed, :test_value}, 0)
     # state should be clean
-    assert %{data: [test: :test_value], locks: [], subs: [], full: false, memory_limit: 1000000, reset_index: 0} == GenServer.call(:test_cache, :state)
+    state = GenServer.call(:test_cache, :state)
+    assert [test: :test_value] == state.data
+    assert [] == state.locks
+    assert [] == state.subs
     # test a few cache hits
     Enum.each(Enum.to_list(1..10), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -46,7 +57,7 @@ defmodule CoopCache.ServerTest do
   end
 
   test "memory_limit" do
-    CoopCache.Server.start_link(:test, %{ memory_limit: 0})
+    {:ok, _} = CoopCache.Server.start_link(:test, %{ memory_limit: 0})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
@@ -56,7 +67,10 @@ defmodule CoopCache.ServerTest do
     assert true  == wait_for({:processed, :test_value2})
     assert false == wait_for({:processed, :test_value2}, 0)
     # state should be clean
-    assert %{data: [key1: :test_value1], locks: [], subs: [], full: true, memory_limit: 0, reset_index: 0 } == GenServer.call(:test_cache, :state)
+    state = GenServer.call(:test_cache, :state)
+    assert [key1: :test_value1] == state.data
+    assert [] == state.locks
+    assert [] == state.subs
   end
 
   def insert_and_reply(from, {key, data} \\ {:test, :test_value}, sleep_for \\ 1) do

@@ -23,6 +23,6 @@ use Mix.Config
 #
 #     import_config "#{Mix.env}.exs"
 
-config :coop_cache, caches: [
-  {:test_cache, %{ memory_limit: 1024 * 1024 }}
-  ]
+config :coop_cache,
+  nodes:  [:"coop2@silverfish.local"],
+  caches: [ {:example, %{ memory_limit: 1024 * 1024 }} ]
