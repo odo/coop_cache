@@ -63,9 +63,9 @@ defmodule CoopCache.ServerTest do
     assert true == wait_for({:value, :test_value1})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key2, :test_value2}] )
     assert true == wait_for({:value, :test_value2})
-    assert false == wait_for({:processed, :test_value1}, 0)
+    assert false == wait_for({:processed, :test_value1}, 1)
     assert true  == wait_for({:processed, :test_value2})
-    assert false == wait_for({:processed, :test_value2}, 0)
+    assert false == wait_for({:processed, :test_value2}, 1)
     # state should be clean
     state = GenServer.call(:test_cache, :state)
     assert [key1: :test_value1] == state.data
@@ -83,7 +83,7 @@ defmodule CoopCache.ServerTest do
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_llls)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_llls)
     # from here on, nothing should change
     assert true == wait_for({:ref, :value_local})
     snapshot_lv = snapshot_state(state_lv)
@@ -92,7 +92,7 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_lv
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_rl)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_rl)
     snapshot_rv = snapshot_state(state_rv)
     assert snapshot_lv == snapshot_rv
   end
@@ -113,13 +113,13 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_llls
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_rl)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_rl)
     assert true == wait_for({:ref, :value_local})
     snapshot_lv = snapshot_state(state_lv)
     assert []                   == snapshot_lv.locks
     assert [key: :value_local] == snapshot_lv.data
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_lv)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_lv)
     snapshot_rv = snapshot_state(state_rv)
     assert snapshot_lv == snapshot_rv
   end
@@ -140,13 +140,13 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_llls
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 0}, state_rl)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_rl)
     assert true == wait_for({:ref, :value_remote})
     snapshot_rv = snapshot_state(state_rv)
     assert []                   == snapshot_rv.locks
     assert [key: :value_remote] == snapshot_rv.data
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 0}, state_rv)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_rv)
     snapshot_lv = snapshot_state(state_lv)
     assert snapshot_lv == snapshot_rv
   end

@@ -22,13 +22,13 @@ defmodule CoopCache.Server do
       data: data, locks: locks, subs: subs,
       nodes: nodes,
       memory_limit: memory_limit,
-      full: false, reset_index: 0
+      full: false, version: 1
     }
     {:ok, state}
   end
 
   def handle_call({:write_or_wait, key, fun}, from,
-    state = %{ name: name, data: data, locks: locks, subs: subs, nodes: nodes, full: full, reset_index: reset_index }) do
+    state = %{ name: name, data: data, locks: locks, subs: subs, nodes: nodes, full: full, version: version }) do
     case :ets.lookup(locks, key) do
       [{key, _}] ->
           # processing is in progress
@@ -51,7 +51,7 @@ defmodule CoopCache.Server do
                   send({table_name(name), node}, {:lock, key, fun})
                   end)
                 :ets.insert(subs,  {key, from})
-                spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, reset_index])
+                spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
               true ->
                 GenServer.reply(from, {:error, :cache_full})
             end
@@ -60,17 +60,17 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_call(:reset, _, state = %{ name: name, data: data, locks: locks, nodes: nodes, reset_index: reset_index }) do
-    reset_index = reset_index + 1
+  def handle_call(:reset, _, state = %{ name: name, data: data, locks: locks, nodes: nodes, version: version }) do
+    version = version + 1
     # we need to recalculate everything that is in flight
     Enum.each(
       :ets.tab2list(locks),
       fn({key, fun}) ->
-        spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, reset_index])
+        spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
       end
     )
     :ets.delete_all_objects(data)
-    reset_state = Map.merge( state, %{ full: false, reset_index: reset_index } )
+    reset_state = Map.merge( state, %{ full: false, version: version } )
     {:reply, :ok, reset_state}
   end
 
@@ -89,7 +89,7 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_info({:value, key, value, reset_index}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, reset_index: reset_index }) do
+  def handle_info({:value, key, value, version}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, version: version }) do
     # this might be a value arriving from remote
     # while the local value was already written
     case :ets.lookup(data, key) do
@@ -117,7 +117,7 @@ defmodule CoopCache.Server do
     end
   end
 
-  def handle_info({:value, _, _, _non_mathing_reset_index}, state) do
+  def handle_info({:value, _, _, _non_mathing_version}, state) do
     {:noreply, state}
   end
 
@@ -126,9 +126,9 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def process_async(key, fun, sender, name, nodes, reset_index) do
+  def process_async(key, fun, sender, name, nodes, version) do
     value   = fun.()
-    message = {:value, key, value, reset_index}
+    message = {:value, key, value, version}
     send(sender, message)
     Enum.each(nodes, fn(node) -> send({table_name(name), node}, message) end)
   end
