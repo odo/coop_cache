@@ -24,7 +24,7 @@ defmodule CoopCache.ServerTest do
 
   test "mass insertion" do
     test_count = 1000
-    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000})
+    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000, version: 1})
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -45,19 +45,19 @@ defmodule CoopCache.ServerTest do
   end
 
   test "resetting" do
-    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000})
+    CoopCache.Server.start_link(:test, %{ memory_limit: 1000000, version: 1})
     # do insert
     Application.put_env(:test, :test, :before_test)
     fun = fn() -> Application.get_env(:test, :test) end
     spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, fun}, 10])
     :timer.sleep(5)
     Application.put_env(:test, :test, :after_test)
-    CoopCache.Server.reset(:test)
+    CoopCache.Server.reset(:test, 2)
     assert true == wait_for({:value, :after_test})
   end
 
   test "memory_limit" do
-    {:ok, _} = CoopCache.Server.start_link(:test, %{ memory_limit: 0})
+    {:ok, _} = CoopCache.Server.start_link(:test, %{ memory_limit: 0, version: 1})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
@@ -79,7 +79,7 @@ defmodule CoopCache.ServerTest do
   # * remote value
   test "distribution 1" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000, version: 1}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
 
@@ -103,7 +103,7 @@ defmodule CoopCache.ServerTest do
   # * remote value
   test "distribution 2" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000, version: 1}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)
@@ -130,7 +130,7 @@ defmodule CoopCache.ServerTest do
   # * local value
   test "distribution 3" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000}])
+    {:ok, state_init}      = CoopCache.Server.init([:test, %{memory_limit: 100000, version: 1}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)

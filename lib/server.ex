@@ -7,11 +7,11 @@ defmodule CoopCache.Server do
     GenServer.start_link(__MODULE__, [name, options], name: table_name(name))
   end
 
-  def reset(name) do
-    GenServer.call(table_name(name), :reset)
+  def reset(name, version) do
+    GenServer.call(table_name(name), {:reset, version})
   end
 
-  def init([name, %{memory_limit: memory_limit}]) when is_atom(name) and is_integer(memory_limit) do
+  def init([name, %{memory_limit: memory_limit, version: version }]) when is_atom(name) and is_integer(memory_limit) do
     nodes = Application.get_env(:coop_cache, :nodes) -- [node]
     Enum.each(nodes, fn(node) -> :net_adm.ping(node) end)
     data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
@@ -22,7 +22,8 @@ defmodule CoopCache.Server do
       data: data, locks: locks, subs: subs,
       nodes: nodes,
       memory_limit: memory_limit,
-      full: false, version: 1
+      version: version,
+      full: false
     }
     {:ok, state}
   end
@@ -60,18 +61,8 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_call(:reset, _, state = %{ name: name, data: data, locks: locks, nodes: nodes, version: version }) do
-    version = version + 1
-    # we need to recalculate everything that is in flight
-    Enum.each(
-      :ets.tab2list(locks),
-      fn({key, fun}) ->
-        spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
-      end
-    )
-    :ets.delete_all_objects(data)
-    reset_state = Map.merge( state, %{ full: false, version: version } )
-    {:reply, :ok, reset_state}
+  def handle_call({:reset, version}, _, state) do
+    {:reply, :ok, reset_state(state, version)}
   end
 
   ## this is for testing
@@ -121,6 +112,10 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
+  def handle_info({:reset, version}, state) do
+    {:noreply, reset_state(state, version)}
+  end
+
   def handle_info(msg, state) do
     Logger.error("unexpected message: #{inspect(msg)}")
     {:noreply, state}
@@ -130,6 +125,31 @@ defmodule CoopCache.Server do
     value   = fun.()
     message = {:value, key, value, version}
     send(sender, message)
+    send_to_all(name, nodes, message)
+  end
+
+
+  # we are already at the newest version
+  def reset_state(state = %{version: version}, version) do
+    state
+  end
+
+  def reset_state(state = %{nodes: nodes, name: name, data: data, locks: locks}, version) do
+    # tell the peers
+    send_to_all(name, nodes, {:reset, version})
+    # we need to recalculate everything that is in flight
+    Enum.each(
+      :ets.tab2list(locks),
+      fn({key, fun}) ->
+        spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
+      end
+    )
+    :ets.delete_all_objects(data)
+    Map.merge( state, %{ full: false, version: version } )
+  end
+
+
+  def send_to_all(name, nodes, message) do
     Enum.each(nodes, fn(node) -> send({table_name(name), node}, message) end)
   end
 
