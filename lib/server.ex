@@ -11,7 +11,7 @@ defmodule CoopCache.Server do
     GenServer.call(table_name(name), {:reset, version})
   end
 
-  def init([name, %{memory_limit: memory_limit, version: version }]) when is_atom(name) and is_integer(memory_limit) do
+  def init([name, %{memory_limit: memory_limit, version: version, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
     nodes = Application.get_env(:coop_cache, :nodes) -- [node]
     Enum.each(nodes, fn(node) -> :net_adm.ping(node) end)
     data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
@@ -23,6 +23,7 @@ defmodule CoopCache.Server do
       nodes: nodes,
       memory_limit: memory_limit,
       version: version,
+      callback_module: callback_module,
       full: false
     }
     {:ok, state}
@@ -134,7 +135,12 @@ defmodule CoopCache.Server do
     state
   end
 
-  def reset_state(state = %{nodes: nodes, name: name, data: data, locks: locks}, version) do
+  def reset_state(state = %{nodes: nodes, name: name, data: data, locks: locks, callback_module: callback_module}, version) do
+    # let the callback know of the reset
+    case callback_module do
+      nil -> :noop
+      _   -> :ok = callback_module.reset(version)
+    end
     # tell the peers
     send_to_all(name, nodes, {:reset, version})
     # we need to recalculate everything that is in flight
