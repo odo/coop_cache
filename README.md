@@ -62,3 +62,6 @@ config :coop_cache,
 When starting coop_cache tries to connect the other nodes and then assumes that it runs the same sets of caches. Locks and writes are then distributed and coop_cache tries to do the computation for each key only once cluster-wide although this is not guaranteed.
 
 Please note that the cache only accepts writes from other caches with the same version. The version starts with 1 and is then incremented during each reset.  
+
+# Tests
+`./deps/flock/run_test`

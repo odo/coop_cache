@@ -45,7 +45,6 @@ defmodule CoopCache.ServerTest do
   end
 
   def reset(2) do
-    IO.puts("resetting")
     :ok
   end
 
