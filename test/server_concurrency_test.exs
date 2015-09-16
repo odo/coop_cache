@@ -23,22 +23,24 @@ defmodule CoopCache.ServerConcurrencyTest do
     :ok
   end
 
+  @node_config %{config: "config/concurrency_test_config.exs", apps: [:coop_cache]}
+
+  def start_nodes(names) do
+    Flock.Server.start_nodes(names, @node_config)
+    |> Enum.map(fn(node) ->
+      :rpc.call(node, Code, :eval_file, ["test/test_client.ex"])
+      node
+    end)
+  end
+
   test "cooperation" do
-    nodes =
-    Flock.Server.start_nodes(
-      [:one, :two, :three, :four, :five],
-      %{config: "config/concurrency_test_config.exs",
-        apps: [:coop_cache]}
-    )
-    Enum.each(nodes, fn(node) -> :rpc.call(node, Code, :eval_file, ["test/test_client.ex"]) end)
-    call_keys = Enum.map(
-      nodes,
-      fn(node) ->
+    start_nodes([:one, :two, :three, :four, :five])
+    |> Enum.map( fn(node) ->
         :timer.sleep(1)
         Enum.map(1..5, fn(_) -> :rpc.async_call(node, CoopCache.TestClient, :get, [:test_msg, self]) end)
-      end
-    )
-    Enum.each(List.flatten(call_keys), fn(key) -> :test_msg = :rpc.yield(key) end)
+      end )
+    |> List.flatten
+    |> Enum.each(fn(key) -> :test_msg = :rpc.yield(key) end)
     assert 1 == times_processed(:test_msg)
   end
 
