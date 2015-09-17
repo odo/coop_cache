@@ -44,10 +44,6 @@ defmodule CoopCache.ServerTest do
     Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
   end
 
-  def reset(2) do
-    :ok
-  end
-
   test "resetting" do
     CoopCache.Server.start_link(:test, %{ memory_limit: 1000000, version: 1, callback_module: CoopCache.ServerTest })
     # do insert
@@ -57,6 +53,7 @@ defmodule CoopCache.ServerTest do
     :timer.sleep(5)
     Application.put_env(:test, :test, :after_test)
     CoopCache.Server.reset(:test, 2)
+    assert 2 == CoopCache.Server.version(:test)
     assert true == wait_for({:value, :after_test})
   end
 
@@ -153,6 +150,10 @@ defmodule CoopCache.ServerTest do
     {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_rv)
     snapshot_lv = snapshot_state(state_lv)
     assert snapshot_lv == snapshot_rv
+  end
+
+  def reset(2) do
+    :ok
   end
 
   def snapshot_state(state  = %{ data: data, locks: locks, subs: subs}) do

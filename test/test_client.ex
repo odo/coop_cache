@@ -1,11 +1,11 @@
 defmodule CoopCache.TestClient do
   import CoopCache
 
-  def get(id, pid) do
-    cached(:dist_cache, id) do
-      send(pid, {:processed, id})
+  def get(key, value, pid) do
+    cached(:dist_cache, key) do
+      send(pid, {:processed, key, value})
       :timer.sleep(10)
-      id
+      value
     end
   end
 

@@ -11,6 +11,17 @@ defmodule CoopCache.Server do
     GenServer.call(table_name(name), {:reset, version})
   end
 
+  def data(name) do
+    table_name = table_name(name)
+    version    = GenServer.call(table_name, {:version})
+    data       = :ets.tab2list(table_name)
+    {version, data}
+  end
+
+  def version(name) do
+    GenServer.call(table_name(name), {:version})
+  end
+
   def init([name, %{memory_limit: memory_limit, version: version, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
     nodes = Application.get_env(:coop_cache, :nodes) -- [node]
     Enum.each(nodes, fn(node) -> :net_adm.ping(node) end)
@@ -26,6 +37,7 @@ defmodule CoopCache.Server do
       callback_module: callback_module,
       full: false
     }
+    send(self, :prime)
     {:ok, state}
   end
 
@@ -64,6 +76,10 @@ defmodule CoopCache.Server do
 
   def handle_call({:reset, version}, _, state) do
     {:reply, :ok, reset_state(state, version)}
+  end
+
+  def handle_call({:version}, _, state = %{version: version}) do
+    {:reply, version, state}
   end
 
   ## this is for testing
@@ -117,9 +133,32 @@ defmodule CoopCache.Server do
     {:noreply, reset_state(state, version)}
   end
 
+  def handle_info(:prime, state = %{name: name, nodes: nodes, data: data}) do
+    case aquire_data(name, Enum.shuffle(nodes)) do
+      nil ->
+        {:noreply, state}
+      {version, remote_data} ->
+        :ets.insert(data, remote_data)
+        {:noreply, %{state | version: version}}
+    end
+  end
+
   def handle_info(msg, state) do
     Logger.error("unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  def aquire_data(_, []) do
+    nil
+  end
+
+  def aquire_data(name, [next_node | rest]) do
+    case :rpc.call(next_node, __MODULE__, :data, [name]) do
+      {:badrpc, _} ->
+        aquire_data(name, rest)
+      {version, data} ->
+        {version, data}
+     end
   end
 
   def process_async(key, fun, sender, name, nodes, version) do

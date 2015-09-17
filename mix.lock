@@ -1,1 +1,1 @@
-%{"flock": {:git, "git@github.com:wooga/flock.git", "2a4a9eb3ee607a02e39c47af3eb4fe3b93747fb9", []}}
+%{"flock": {:git, "git@github.com:wooga/flock.git", "ce3f05bffdd8acf23aa7946e0ba6c83d52f0be89", []}}
