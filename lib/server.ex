@@ -9,6 +9,10 @@ defmodule CoopCache.Server do
 
   def reset(name, version) do
     GenServer.call(table_name(name), {:reset, version})
+  end  
+
+  def reset_async(name, version) do
+    send(table_name(name), {:reset, version})
   end
 
   def data(name) do
