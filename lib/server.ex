@@ -4,28 +4,27 @@ defmodule CoopCache.Server do
   use GenServer
 
   def start_link(name, options) do
-    GenServer.start_link(__MODULE__, [name, options], name: table_name(name))
+    GenServer.start_link(__MODULE__, [name, options], name: name)
   end
 
   def reset(name, version) do
-    GenServer.call(table_name(name), {:reset, version})
+    GenServer.call(name, {:reset, version})
   end
 
   def data(name) do
-    table_name = table_name(name)
-    version    = GenServer.call(table_name, {:version})
-    data       = :ets.tab2list(table_name)
+    version    = GenServer.call(name, {:version})
+    data       = :ets.tab2list(name)
     {version, data}
   end
 
   def version(name) do
-    GenServer.call(table_name(name), {:version})
+    GenServer.call(name, {:version})
   end
 
   def init([name, %{memory_limit: memory_limit, version: version, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
     nodes = Application.get_env(:coop_cache, :nodes) -- [node]
     Enum.each(nodes, fn(node) -> :net_adm.ping(node) end)
-    data  = :ets.new(table_name(name), [:named_table, :set, {:read_concurrency, true}])
+    data  = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
     locks = :ets.new(:locks, [:set])
     subs  = :ets.new(:subs,  [:bag])
     state = %{
@@ -62,7 +61,7 @@ defmodule CoopCache.Server do
                 # lock, subscribe and spawn
                 :ets.insert(locks, {key, fun})
                 Enum.each(nodes, fn(node) ->
-                  send({table_name(name), node}, {:lock, key, fun})
+                  send({name, node}, {:lock, key, fun})
                   end)
                 :ets.insert(subs,  {key, from})
                 spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
@@ -195,11 +194,7 @@ defmodule CoopCache.Server do
 
 
   def send_to_all(name, nodes, message) do
-    Enum.each(nodes, fn(node) -> send({table_name(name), node}, message) end)
-  end
-
-  def table_name(name) do
-    String.to_atom(Atom.to_string(name) <> "_cache")
+    Enum.each(nodes, fn(node) -> send({name, node}, message) end)
   end
 
 end

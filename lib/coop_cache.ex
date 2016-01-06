@@ -3,7 +3,7 @@ defmodule CoopCache do
 
   defmacro cached(name, key, do: block) do
     quote do
-      name = CoopCache.Server.table_name(unquote(name))
+      name = unquote(name)
       key  = unquote(key)
       fun  = fn() ->
         unquote(block)

@@ -1,8 +1,6 @@
 defmodule CoopCache.ServerConcurrencyTest do
   use ExUnit.Case, async: false
 
-  import CoopCache
-
   defmacro wait_for(msg, timeout \\ 1000) do
     quote do
       receive do
@@ -16,21 +14,26 @@ defmodule CoopCache.ServerConcurrencyTest do
   end
 
   setup do
-    Application.ensure_all_started(:flock)
+    {:ok, _} = Application.ensure_all_started(:flock)
     on_exit fn ->
       Flock.Server.stop_all
     end
     :ok
   end
 
-  @node_config %{config: "config/concurrency_test_config.exs", apps: [:coop_cache]}
+  def node_config() do
+    %{rpcs: [
+      {:application, :ensure_all_started, [:elixir]},
+      {:application, :ensure_all_started, [:mix]},
+      {Code, :eval_file, ["mix.exs"]},
+      {Mix.Tasks.Loadconfig, :run, [["config/concurrency_test_config.exs"]]},
+      {Code, :eval_file, ["test/test_client.exs"]},
+      {:application, :ensure_all_started, [:coop_cache]},
+    ]}
+  end
 
   def start_nodes(names) do
-    Flock.Server.start_nodes(names, @node_config)
-    |> Enum.map(fn(node) ->
-      :rpc.call(node, Code, :eval_file, ["test/test_client.ex"])
-      node
-    end)
+    Flock.Server.start_nodes(names, node_config)
   end
 
   test "cooperation" do
