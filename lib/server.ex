@@ -11,6 +11,10 @@ defmodule CoopCache.Server do
     GenServer.call(name, {:reset, version})
   end
 
+  def reset_async(name, version) do
+    send(name, {:reset, version})
+  end
+
   def data(name) do
     version    = GenServer.call(name, {:version})
     data       = :ets.tab2list(name)
