@@ -7,6 +7,10 @@ defmodule CoopCache.Server do
     GenServer.start_link(__MODULE__, [name, options], name: name)
   end
 
+  def set_nodes(name, nodes) do
+    GenServer.call(name, {:set_nodes, nodes})
+  end
+
   def reset(name, version) do
     GenServer.call(name, {:reset, version})
   end
@@ -75,6 +79,10 @@ defmodule CoopCache.Server do
         end
     end
     {:noreply, state}
+  end
+
+  def handle_call({:set_nodes, nodes}, _, state) do
+    {:reply, :ok, %{state | nodes: (nodes  -- [node])}}
   end
 
   def handle_call({:reset, version}, _, state) do

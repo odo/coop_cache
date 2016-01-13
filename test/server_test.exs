@@ -22,6 +22,16 @@ defmodule CoopCache.ServerTest do
     :ok
   end
 
+  test "setting nodes" do
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, version: 1, callback_module: nil})
+    test_nodes = [:node1, :node2]
+    state = GenServer.call(:test_cache, :state)
+    assert [] == state.nodes
+    CoopCache.Server.set_nodes(:test_cache, test_nodes)
+    state = GenServer.call(:test_cache, :state)
+    assert test_nodes == state.nodes
+  end
+
   test "mass insertion" do
     test_count = 1000
     CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, version: 1, callback_module: nil})
