@@ -27,7 +27,7 @@ defmodule CoopCache.ServerTest do
     test_nodes = [:node1, :node2]
     state = GenServer.call(:test_cache, :state)
     assert [] == state.nodes
-    CoopCache.Server.set_nodes(:test_cache, test_nodes)
+    CoopCache.Server.set_nodes(:test_cache, test_nodes ++ [node()])
     state = GenServer.call(:test_cache, :state)
     assert test_nodes == state.nodes
   end
