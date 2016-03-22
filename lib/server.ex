@@ -15,26 +15,28 @@ defmodule CoopCache.Server do
     :ets.tab2list(name)
   end
 
-  def init([name, %{memory_limit: memory_limit, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
+  def init([name, %{memory_limit: memory_limit, cache_duration: cache_duration }]) when is_atom(name) and is_integer(memory_limit) do
     (nodes = Application.get_env(:coop_cache, :nodes) -- [node])
     |> Enum.each(&:net_adm.ping/1)
-    data  = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
-    locks = :ets.new(:locks, [:set])
-    subs  = :ets.new(:subs,  [:bag])
-    state = %{
+    data     = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
+    activity = :ets.new(:activity, [:set])
+    locks    = :ets.new(:locks,    [:set])
+    subs     = :ets.new(:subs,     [:bag])
+    state    = %{
       name: name,
-      data: data, locks: locks, subs: subs,
+      data: data, locks: locks, subs: subs, activity: activity,
       nodes: nodes,
       memory_limit: memory_limit,
-      callback_module: callback_module,
       full: false
     }
     send(self, :prime)
+    send(self, {:clear_cache, cache_duration})
     {:ok, state}
   end
 
   def handle_call({:write_or_wait, key, fun}, from,
-    state = %{ name: name, data: data, locks: locks, subs: subs, nodes: nodes, full: full }) do
+    state = %{ name: name, data: data, locks: locks, subs: subs, activity: activity, nodes: nodes, full: full }) do
+    :ets.insert(activity, {key, now})
     case :ets.lookup(locks, key) do
       [{key, _}] ->
           # processing is in progress
@@ -85,6 +87,11 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
+  def handle_cast({:activity, key}, state = %{activity: activity}) do
+    :ets.insert(activity, {key, now})
+    {:noreply, state}
+  end
+
   def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit}) do
     # this might be a value arriving from remote
     # while the local value was already written
@@ -121,6 +128,21 @@ defmodule CoopCache.Server do
     end
   end
 
+  def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity}) do
+    Enum.max([1, round(duration/10)]) * 1000
+    |> :erlang.send_after(self, {:clear_cache, duration})
+
+    expire_at = now - duration
+    :ets.select(activity, [{ {:"$1", :"$2"}, [{:<, :"$2", expire_at}], [:"$1"] }])
+    |> Enum.each(
+      fn(key) ->
+        [locks, subs, activity, data]
+        |> Enum.each(fn(table) -> :ets.delete(table, key) end)
+      end
+    )
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.error("unexpected message: #{inspect(msg)}")
     {:noreply, state}
@@ -147,9 +169,12 @@ defmodule CoopCache.Server do
     send_to_all(name, nodes, message)
   end
 
-
   def send_to_all(name, nodes, message) do
     Enum.each(nodes, fn(node) -> send({name, node}, message) end)
+  end
+
+  def now do
+    :erlang.system_time(:seconds)
   end
 
 end

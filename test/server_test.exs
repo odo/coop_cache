@@ -23,7 +23,7 @@ defmodule CoopCache.ServerTest do
   end
 
   test "setting nodes" do
-    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, callback_module: nil})
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000_000})
     test_nodes = [:node1, :node2]
     state = GenServer.call(:test_cache, :state)
     assert [] == state.nodes
@@ -34,7 +34,7 @@ defmodule CoopCache.ServerTest do
 
   test "mass insertion" do
     test_count = 1000
-    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, callback_module: nil})
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000_000})
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -55,7 +55,7 @@ defmodule CoopCache.ServerTest do
   end
 
   test "memory_limit" do
-    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 0, callback_module: nil})
+    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 0, cache_duration: 1000_000})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
@@ -71,13 +71,28 @@ defmodule CoopCache.ServerTest do
     assert [] == state.subs
   end
 
+  test "cache eviction" do
+    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert true == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, :test_value1})
+    send(:test_cache, {:clear_cache, 1000})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert false == wait_for({:processed, :test_value1})
+    assert true  == wait_for({:value, :test_value1})
+    send(:test_cache, {:clear_cache, 0})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert true == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, :test_value1})
+  end
+
   # * local lock, local subscribe
   # * local value
   # * remote lock
   # * remote value
   test "distribution 1" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, cache_duration: 1000_000}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
 
@@ -101,7 +116,7 @@ defmodule CoopCache.ServerTest do
   # * remote value
   test "distribution 2" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, cache_duration: 1000_000}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)
@@ -128,7 +143,7 @@ defmodule CoopCache.ServerTest do
   # * local value
   test "distribution 3" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, cache_duration: 1000_000}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)

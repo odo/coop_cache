@@ -17,6 +17,8 @@ As values are written the cache grows until hitting a fized memory limit. After 
 
 The memory limit is intended as a safety cap and should normally never be reached.
 
+The cache_duration is the the number of seconds after the last activity (read or write) until coop_cache deletes a cache entry.
+
 # Usage
 
 Mix configuration:
@@ -24,7 +26,7 @@ Mix configuration:
 ```elixir
 config :coop_cache,
   nodes:  [],
-  caches: [ {:example, %{ memory_limit: 1024 * 1024, callback_module: nil }} ]
+  caches: [ {:example, %{ memory_limit: 1024 * 1024, cache_duration: 10 }} ]
 ```
 
 caching:

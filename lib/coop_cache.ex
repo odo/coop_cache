@@ -18,6 +18,7 @@ defmodule CoopCache do
             value -> value
           end
         [{_, value}] ->
+          GenServer.cast(name, {:activity, key})
           value
       end
 
