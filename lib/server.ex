@@ -106,7 +106,7 @@ defmodule CoopCache.Server do
         :ets.delete(subs,  key)
         :ets.delete(locks, key)
         # see if cache is full
-        case :ets.info(data, :memory) >= memory_limit do
+        case (:ets.info(data, :memory) * :erlang.system_info(:wordsize)) >= memory_limit do
           true ->
             Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
             {:noreply, %{ state | full: true }}
