@@ -11,27 +11,13 @@ defmodule CoopCache.Server do
     GenServer.call(name, {:set_nodes, nodes})
   end
 
-  def reset(name, version) do
-    GenServer.call(name, {:reset, version})
-  end
-
-  def reset_async(name, version) do
-    send(name, {:reset, version})
-  end
-
   def data(name) do
-    version    = GenServer.call(name, {:version})
-    data       = :ets.tab2list(name)
-    {version, data}
+    :ets.tab2list(name)
   end
 
-  def version(name) do
-    GenServer.call(name, {:version})
-  end
-
-  def init([name, %{memory_limit: memory_limit, version: version, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
-    nodes = Application.get_env(:coop_cache, :nodes) -- [node]
-    Enum.each(nodes, fn(node) -> :net_adm.ping(node) end)
+  def init([name, %{memory_limit: memory_limit, callback_module: callback_module }]) when is_atom(name) and is_integer(memory_limit) do
+    (nodes = Application.get_env(:coop_cache, :nodes) -- [node])
+    |> Enum.each(&:net_adm.ping/1)
     data  = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
     locks = :ets.new(:locks, [:set])
     subs  = :ets.new(:subs,  [:bag])
@@ -40,7 +26,6 @@ defmodule CoopCache.Server do
       data: data, locks: locks, subs: subs,
       nodes: nodes,
       memory_limit: memory_limit,
-      version: version,
       callback_module: callback_module,
       full: false
     }
@@ -49,12 +34,12 @@ defmodule CoopCache.Server do
   end
 
   def handle_call({:write_or_wait, key, fun}, from,
-    state = %{ name: name, data: data, locks: locks, subs: subs, nodes: nodes, full: full, version: version }) do
+    state = %{ name: name, data: data, locks: locks, subs: subs, nodes: nodes, full: full }) do
     case :ets.lookup(locks, key) do
       [{key, _}] ->
           # processing is in progress
           # we subscribe
-          :ets.insert(subs,  {key, from})
+          :ets.insert(subs, {key, from})
       [] ->
         case :ets.lookup(data, key) do
           [{_, value}] ->
@@ -71,8 +56,8 @@ defmodule CoopCache.Server do
                 Enum.each(nodes, fn(node) ->
                   send({name, node}, {:lock, key, fun})
                   end)
-                :ets.insert(subs,  {key, from})
-                spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
+                :ets.insert(subs, {key, from})
+                spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes])
               true ->
                 GenServer.reply(from, {:error, :cache_full})
             end
@@ -83,14 +68,6 @@ defmodule CoopCache.Server do
 
   def handle_call({:set_nodes, nodes}, _, state) do
     {:reply, :ok, %{state | nodes: (nodes  -- [node])}}
-  end
-
-  def handle_call({:reset, version}, _, state) do
-    {:reply, :ok, reset_state(state, version)}
-  end
-
-  def handle_call({:version}, _, state = %{version: version}) do
-    {:reply, version, state}
   end
 
   ## this is for testing
@@ -108,7 +85,7 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_info({:value, key, value, version}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit, version: version }) do
+  def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit}) do
     # this might be a value arriving from remote
     # while the local value was already written
     case :ets.lookup(data, key) do
@@ -116,12 +93,10 @@ defmodule CoopCache.Server do
         # insert the actual data
         :ets.insert(data, {key, value})
         # publish data to all subscribers
-        Enum.each(
-          :ets.lookup(subs, key),
-          fn({_, subscriber}) -> GenServer.reply(subscriber, value) end
-        )
-        # claen up
-        :ets.delete(subs, key)
+        :ets.lookup(subs, key)
+        |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, value) end )
+        # clean up
+        :ets.delete(subs,  key)
         :ets.delete(locks, key)
         # see if cache is full
         case :ets.info(data, :memory) >= memory_limit do
@@ -136,21 +111,13 @@ defmodule CoopCache.Server do
     end
   end
 
-  def handle_info({:value, _, _, _non_mathing_version}, state) do
-    {:noreply, state}
-  end
-
-  def handle_info({:reset, version}, state) do
-    {:noreply, reset_state(state, version)}
-  end
-
   def handle_info(:prime, state = %{name: name, nodes: nodes, data: data}) do
     case aquire_data(name, Enum.shuffle(nodes)) do
       nil ->
         {:noreply, state}
-      {version, remote_data} ->
+      remote_data ->
         :ets.insert(data, remote_data)
-        {:noreply, %{state | version: version}}
+        {:noreply, state}
     end
   end
 
@@ -167,41 +134,17 @@ defmodule CoopCache.Server do
     case :rpc.call(next_node, __MODULE__, :data, [name]) do
       {:badrpc, _} ->
         aquire_data(name, rest)
-      {version, data} ->
-        {version, data}
+      data ->
+        data
      end
   end
 
-  def process_async(key, fun, sender, name, nodes, version) do
+  def process_async(key, fun, sender, name, nodes) do
+    # this is the actual computation of the value
     value   = fun.()
-    message = {:value, key, value, version}
+    message = {:value, key, value}
     send(sender, message)
     send_to_all(name, nodes, message)
-  end
-
-
-  # we are already at the newest version
-  def reset_state(state = %{version: version}, version) do
-    state
-  end
-
-  def reset_state(state = %{nodes: nodes, name: name, data: data, locks: locks, callback_module: callback_module}, version) do
-    # let the callback know of the reset
-    case callback_module do
-      nil -> :noop
-      _   -> :ok = callback_module.reset(version)
-    end
-    # tell the peers
-    send_to_all(name, nodes, {:reset, version})
-    # we need to recalculate everything that is in flight
-    Enum.each(
-      :ets.tab2list(locks),
-      fn({key, fun}) ->
-        spawn(__MODULE__, :process_async, [key, fun, self(), name, nodes, version])
-      end
-    )
-    :ets.delete_all_objects(data)
-    Map.merge( state, %{ full: false, version: version } )
   end
 
 

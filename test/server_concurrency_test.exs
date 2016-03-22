@@ -59,7 +59,7 @@ defmodule CoopCache.ServerConcurrencyTest do
     # the one with no application running
     Flock.Server.start_nodes([:two], %{})
     assert :value == Flock.Server.rpc(:four, CoopCache.TestClient, :get, [:key, :value, self])
-    assert  {nil, [key: :value]} == :rpc.call(:four@localhost, CoopCache.Server, :data, [:dist_cache])
+    assert  [key: :value] == :rpc.call(:four@localhost, CoopCache.Server, :data, [:dist_cache])
     # this is the newcomer that should pick up the data from :two
     start_nodes([:three])
     assert :value == Flock.Server.rpc(:three, CoopCache.TestClient, :get, [:key, :value_ignored, self])

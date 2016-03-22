@@ -23,7 +23,7 @@ defmodule CoopCache.ServerTest do
   end
 
   test "setting nodes" do
-    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, version: 1, callback_module: nil})
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, callback_module: nil})
     test_nodes = [:node1, :node2]
     state = GenServer.call(:test_cache, :state)
     assert [] == state.nodes
@@ -34,7 +34,7 @@ defmodule CoopCache.ServerTest do
 
   test "mass insertion" do
     test_count = 1000
-    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, version: 1, callback_module: nil})
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, callback_module: nil})
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
@@ -54,21 +54,8 @@ defmodule CoopCache.ServerTest do
     Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
   end
 
-  test "resetting" do
-    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, version: 1, callback_module: CoopCache.ServerTest })
-    # do insert
-    Application.put_env(:test, :test, :before_test)
-    fun = fn() -> Application.get_env(:test, :test) end
-    spawn(__MODULE__, :insert_and_reply, [self(), {:reset_key, fun}, 10])
-    :timer.sleep(5)
-    Application.put_env(:test, :test, :after_test)
-    CoopCache.Server.reset(:test_cache, 2)
-    assert 2 == CoopCache.Server.version(:test_cache)
-    assert true == wait_for({:value, :after_test})
-  end
-
   test "memory_limit" do
-    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 0, version: 1, callback_module: nil})
+    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 0, callback_module: nil})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
@@ -90,11 +77,11 @@ defmodule CoopCache.ServerTest do
   # * remote value
   test "distribution 1" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, version: 1, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_llls)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local}, state_llls)
     # from here on, nothing should change
     assert true == wait_for({:ref, :value_local})
     snapshot_lv = snapshot_state(state_lv)
@@ -103,7 +90,7 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_lv
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_rl)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote}, state_rl)
     snapshot_rv = snapshot_state(state_rv)
     assert snapshot_lv == snapshot_rv
   end
@@ -114,7 +101,7 @@ defmodule CoopCache.ServerTest do
   # * remote value
   test "distribution 2" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, version: 1, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)
@@ -124,13 +111,13 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_llls
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_rl)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local}, state_rl)
     assert true == wait_for({:ref, :value_local})
     snapshot_lv = snapshot_state(state_lv)
     assert []                   == snapshot_lv.locks
     assert [key: :value_local] == snapshot_lv.data
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_lv)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote}, state_lv)
     snapshot_rv = snapshot_state(state_rv)
     assert snapshot_lv == snapshot_rv
   end
@@ -141,7 +128,7 @@ defmodule CoopCache.ServerTest do
   # * local value
   test "distribution 3" do
     never = fn() -> :timer.sleep(1000000) end
-    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, version: 1, callback_module: nil}])
+    {:ok, state_init}      = CoopCache.Server.init([:test_cache, %{memory_limit: 100000, callback_module: nil}])
 
     {:noreply, state_llls} = CoopCache.Server.handle_call({:write_or_wait, :key, never}, {self(), :ref}, state_init)
     snapshot_llls = snapshot_state(state_llls)
@@ -151,19 +138,15 @@ defmodule CoopCache.ServerTest do
     snapshot_rl = snapshot_state(state_rl)
     assert snapshot_rl == snapshot_llls
 
-    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote, 1}, state_rl)
+    {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote}, state_rl)
     assert true == wait_for({:ref, :value_remote})
     snapshot_rv = snapshot_state(state_rv)
     assert []                   == snapshot_rv.locks
     assert [key: :value_remote] == snapshot_rv.data
 
-    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local, 1}, state_rv)
+    {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local}, state_rv)
     snapshot_lv = snapshot_state(state_lv)
     assert snapshot_lv == snapshot_rv
-  end
-
-  def reset(2) do
-    :ok
   end
 
   def snapshot_state(state  = %{ data: data, locks: locks, subs: subs}) do

@@ -9,13 +9,13 @@ defmodule CoopCache do
         unquote(block)
       end
 
-      case :ets.lookup(name, key) do
+      :ets.lookup(name, key)
+      |> case do
         [] ->
-          case GenServer.call(name, {:write_or_wait, key, fun}) do
-            {:error, :cache_full} ->
-              fun.()
-            value ->
-              value
+          GenServer.call(name, {:write_or_wait, key, fun})
+          |> case do
+            {:error, :cache_full} -> fun.()
+            value -> value
           end
         [{_, value}] ->
           value
@@ -25,15 +25,13 @@ defmodule CoopCache do
   end
 
   def start(_type, _args) do
-    caches     = Application.get_env(:coop_cache, :caches)
     supervisor = CoopCache.Supervisor.start_link
-    Enum.each(
-      caches,
-      fn({name, options}) ->
-        {:ok, _} = Supervisor.start_child(:coop_cache_sup, [name, options])
-      end
-    )
+    Application.get_env(:coop_cache, :caches)
+    |> Enum.each(&start_child/1)
     supervisor
   end
 
+  def start_child({name, options}) do
+    {:ok, _} = Supervisor.start_child(:coop_cache_sup, [name, options])
+  end
 end
