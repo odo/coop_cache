@@ -25,4 +25,4 @@ use Mix.Config
 
 config :coop_cache,
   nodes:  [],
-  caches: [ {:example, %{ memory_limit: 1024 * 1024, cache_duration: 10 }} ]
+  caches: [ {:example, %{ memory_limit: 50 * 1024 * 1024, cache_duration: 10 }} ]
