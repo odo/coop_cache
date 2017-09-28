@@ -66,7 +66,7 @@ defmodule CoopCache.ServerTest do
     assert false == wait_for({:processed, :test_value2}, 1)
     # state should be clean
     state = GenServer.call(:test_cache, :state)
-    assert [key1: :test_value1] == state.data
+    assert [] == state.data
     assert [] == state.locks
     assert [] == state.subs
   end
@@ -84,6 +84,25 @@ defmodule CoopCache.ServerTest do
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, :test_value1})
+  end
+
+  test "memory_limit reset" do
+    {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 2488, cache_duration: 0})
+
+    state = GenServer.call(:test_cache, :state)
+    assert false == state.full
+
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, "value"}] )
+    assert true == wait_for({:processed, "value"})
+    assert true == wait_for({:value, "value"})
+
+    state = GenServer.call(:test_cache, :state)
+    assert true == state.full
+
+    send(:test_cache, {:clear_cache, -100})
+
+    state = GenServer.call(:test_cache, :state)
+    assert false == state.full
   end
 
   # * local lock, local subscribe
