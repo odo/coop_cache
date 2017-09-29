@@ -16,7 +16,7 @@ defmodule CoopCache.Server do
   end
 
   def init([name, %{memory_limit: memory_limit, cache_duration: cache_duration }]) when is_atom(name) and is_integer(memory_limit) do
-    (nodes = Application.get_env(:coop_cache, :nodes) -- [node])
+    (nodes = Application.get_env(:coop_cache, :nodes) -- [node()])
     |> Enum.each(&:net_adm.ping/1)
     data     = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
     activity = :ets.new(:activity, [:set])
@@ -29,14 +29,14 @@ defmodule CoopCache.Server do
       memory_limit: memory_limit,
       full: false
     }
-    send(self, :prime)
-    send(self, {:clear_cache, cache_duration})
+    send(self(), :prime)
+    send(self(), {:clear_cache, cache_duration})
     {:ok, state}
   end
 
   def handle_call({:write_or_wait, key, fun}, from,
     state = %{ name: name, data: data, locks: locks, subs: subs, activity: activity, nodes: nodes, full: full }) do
-    :ets.insert(activity, {key, now})
+    :ets.insert(activity, {key, now()})
     case :ets.lookup(locks, key) do
       [{key, _}] ->
           # processing is in progress
@@ -69,12 +69,17 @@ defmodule CoopCache.Server do
   end
 
   def handle_call({:set_nodes, nodes}, _, state) do
-    {:reply, :ok, %{state | nodes: (nodes  -- [node])}}
+    {:reply, :ok, %{state | nodes: (nodes  -- [node()])}}
   end
 
   ## this is for testing
   def handle_call(:state, _, state = %{ data: data, locks: locks, subs: subs}) do
     {:reply, Map.merge(state, %{ data: :ets.tab2list(data), locks: :ets.tab2list(locks), subs: :ets.tab2list(subs)}), state}
+  end
+
+  def handle_cast({:activity, key}, state = %{activity: activity}) do
+    :ets.insert(activity, {key, now()})
+    {:noreply, state}
   end
 
   def handle_info({:lock, key, fun}, state = %{ data: data, locks: locks }) do
@@ -84,11 +89,6 @@ defmodule CoopCache.Server do
       _  ->
         :noop
     end
-    {:noreply, state}
-  end
-
-  def handle_cast({:activity, key}, state = %{activity: activity}) do
-    :ets.insert(activity, {key, now})
     {:noreply, state}
   end
 
@@ -130,9 +130,9 @@ defmodule CoopCache.Server do
 
   def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity}) do
     Enum.max([1, round(duration/10)]) * 1000
-    |> :erlang.send_after(self, {:clear_cache, duration})
+    |> :erlang.send_after(self(), {:clear_cache, duration})
 
-    expire_at = now - duration
+    expire_at = now() - duration
     :ets.select(activity, [{ {:"$1", :"$2"}, [{:<, :"$2", expire_at}], [:"$1"] }])
     |> Enum.each(
       fn(key) ->
@@ -173,7 +173,7 @@ defmodule CoopCache.Server do
     Enum.each(nodes, fn(node) -> send({name, node}, message) end)
   end
 
-  def now do
+  def now() do
     :erlang.system_time(:seconds)
   end
 
