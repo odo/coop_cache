@@ -12,7 +12,7 @@ defmodule CoopCache do
       :ets.lookup(name, key)
       |> case do
         [] ->
-          GenServer.call(name, {:write_or_wait, key, fun})
+          GenServer.call(name, {:write_or_wait, key, fun}, :infinity)
           |> case do
             {:error, :cache_full} -> fun.()
             value -> value
