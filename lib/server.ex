@@ -48,7 +48,7 @@ defmodule CoopCache.Server do
             # we did not see the result outside the process
             # but now processing is done so
             # we reply directly
-            GenServer.reply(from, value)
+            GenServer.reply(from, {:ok, value})
           [] ->
             case full do
               false ->
@@ -101,7 +101,7 @@ defmodule CoopCache.Server do
         :ets.insert(data, {key, value})
         # publish data to all subscribers
         :ets.lookup(subs, key)
-        |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, value) end )
+        |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, {:ok, value}) end )
         # clean up
         :ets.delete(subs,  key)
         :ets.delete(locks, key)
@@ -116,6 +116,16 @@ defmodule CoopCache.Server do
       _ ->
         {:noreply, state}
     end
+  end
+
+  def handle_info({:error, key, error_message}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit}) do
+    # publish data to all subscribers
+    :ets.lookup(subs, key)
+    |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, {:error, error_message}) end )
+    # clean up
+    :ets.delete(subs,  key)
+    :ets.delete(locks, key)
+    {:noreply, state}
   end
 
   def handle_info(:prime, state = %{name: name, nodes: nodes, data: data}) do
@@ -163,8 +173,14 @@ defmodule CoopCache.Server do
 
   def process_async(key, fun, sender, name, nodes) do
     # this is the actual computation of the value
-    value   = fun.()
-    message = {:value, key, value}
+    # we are wrapping it into a wormhole to catch all errors
+    message =
+    case Wormhole.capture(fun, [crush_report: true]) do
+      {:ok, value} ->
+        {:value, key, value}
+      {:error, error_message} ->
+        {:error, key, error_message}
+    end
     send(sender, message)
     send_to_all(name, nodes, message)
   end

@@ -9,17 +9,17 @@ defmodule CoopCache do
         unquote(block)
       end
 
-      :ets.lookup(name, key)
-      |> case do
+
+      case :ets.lookup(name, key) do
         [] ->
-          GenServer.call(name, {:write_or_wait, key, fun}, :infinity)
-          |> case do
-            {:error, :cache_full} -> fun.()
-            value -> value
+          case GenServer.call(name, {:write_or_wait, key, fun}, :infinity) do
+            {:ok, value}            -> {:ok, value}
+            {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true])
+            {:error, error_message} -> {:error, error_message}
           end
         [{_, value}] ->
           GenServer.cast(name, {:activity, key})
-          value
+          {:ok, value}
       end
 
     end

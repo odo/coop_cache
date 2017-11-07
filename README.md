@@ -39,6 +39,36 @@ cached(:example, :my_key) do
 end
 ```
 
+CoopCache catches any errors/throws/exits and either returns `{:ok, result}` or `{:error, reason}`:
+
+```elixir
+iex(1)> import CoopCache
+CoopCache
+iex(2)> cached(:example, :my_key) do
+...(2)>     :value
+...(2)> end
+{:ok, :value}
+```
+
+```elixir
+iex(1)> import CoopCache
+CoopCache
+iex(2)> cached(:example, :my_key) do
+...(2)>     throw(:kaputt)
+...(2)> end
+
+18:34:22.303 [error] Task #PID<0.176.0> started from #PID<0.175.0> terminating
+** (stop) {:nocatch, :kaputt} [...]
+{:error,
+ {{:nocatch, :kaputt},
+  [{:erl_eval, :do_apply, 6, [file: 'erl_eval.erl', line: 668]},
+   {Wormhole.CallbackWrapper, :catch_errors, 2,
+    [file: 'lib/wormhole/callback_wrapper.ex', line: 12]},
+   {Task.Supervised, :do_apply, 2, [file: 'lib/task/supervised.ex', line: 85]},
+   {Task.Supervised, :reply, 5, [file: 'lib/task/supervised.ex', line: 36]},
+   {:proc_lib, :init_p_do_apply, 3, [file: 'proc_lib.erl', line: 247]}]}}
+```
+
 # Distribution
 
 distribution can be anabled by adding nodes to the config:

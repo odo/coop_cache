@@ -1,1 +1,2 @@
-%{"flock": {:git, "git@github.com:wooga/flock.git", "bd96045faacd21e27b78071919b0fda7a56e5c8c", [tag: "0.4.1"]}}
+%{"flock": {:git, "git@github.com:wooga/flock.git", "bd96045faacd21e27b78071919b0fda7a56e5c8c", [tag: "0.4.1"]},
+  "wormhole": {:git, "https://github.com/renderedtext/wormhole.git", "d2eca3d4b4d2c746b6bfeaf32c3a50834f8b3b61", [branch: "master"]}}

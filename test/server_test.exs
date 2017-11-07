@@ -2,7 +2,7 @@ defmodule CoopCache.ServerTest do
   use ExUnit.Case, async: false
   import CoopCache
 
-  defmacro wait_for(msg, timeout \\ 5000) do
+  defmacro wait_for(msg, timeout \\ 1000) do
     quote do
       receive do
         unquote(msg) ->
@@ -14,12 +14,47 @@ defmodule CoopCache.ServerTest do
     end
   end
 
+  def flush() do
+    receive do
+      message ->
+        [message | flush()]
+    after
+      0 ->
+        []
+    end
+  end
+
   setup do
     case :erlang.whereis(:test_cache) do
       :undefined -> :noop
       pid        -> :erlang.exit(pid, :ok)
     end
     :ok
+  end
+
+  test "caching" do
+    # cold cache
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000_000})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert true  == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
+    # warm cache
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert false  == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
+  end
+
+  test "error while computing result" do
+    # cold cache
+    error_fun = fn() -> throw(:mock_error) end
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000_000})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, error_fun}] )
+    assert false == wait_for({:processed, :test_value1})
+    assert [{:value, {:error, {{:nocatch, :mock_error}, _}}}] = flush()
+    # still cold cache
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :value1}] )
+    assert true  == wait_for({:processed, :value1})
+    assert true == wait_for({:value, {:ok, :value1}})
   end
 
   test "setting nodes" do
@@ -38,31 +73,31 @@ defmodule CoopCache.ServerTest do
     # do inserts
     Enum.each(Enum.to_list(1..test_count), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
-    Enum.each(Enum.to_list(1..test_count), fn(_) -> assert true == wait_for({:value, :test_value}) end )
-    assert false == wait_for({:value, :test_value}, 0)
+    Enum.each(Enum.to_list(1..test_count), fn(_) -> assert true == wait_for({:value, {:ok, :test_value}}) end )
+    assert false == wait_for({:value, {:ok, :test_value}}, 0)
     # see if it was only processed once
     assert true  == wait_for({:processed, :test_value})
     assert false == wait_for({:processed, :test_value}, 0)
     # state should be clean
     state = GenServer.call(:test_cache, :state)
-    assert [test: :test_value] == state.data
+    assert [{:test, :test_value}] == state.data
     assert [] == state.locks
     assert [] == state.subs
     # test a few cache hits
     Enum.each(Enum.to_list(1..10), fn(_) -> spawn(__MODULE__, :insert_and_reply, [self()] ) end )
     # see if exactly all clients got the value
-    Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, :test_value}) end )
+    Enum.each(Enum.to_list(1..10), fn(_) -> assert true == wait_for({:value, {:ok, :test_value}}) end )
   end
 
   test "memory_limit" do
     {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 0, cache_duration: 1000_000})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true  == wait_for({:processed, :test_value1})
-    assert true == wait_for({:value, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key2, :test_value2}] )
-    assert true == wait_for({:value, :test_value2})
     assert false == wait_for({:processed, :test_value1}, 1)
     assert true  == wait_for({:processed, :test_value2})
+    assert true  == wait_for({:value, {:ok, :test_value2}})
     assert false == wait_for({:processed, :test_value2}, 1)
     # state should be clean
     state = GenServer.call(:test_cache, :state)
@@ -75,15 +110,15 @@ defmodule CoopCache.ServerTest do
     {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true == wait_for({:processed, :test_value1})
-    assert true == wait_for({:value, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
     send(:test_cache, {:clear_cache, 1000})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert false == wait_for({:processed, :test_value1})
-    assert true  == wait_for({:value, :test_value1})
+    assert true  == wait_for({:value, {:ok, :test_value1}})
     send(:test_cache, {:clear_cache, 0})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
-    assert true == wait_for({:processed, :test_value1})
-    assert true == wait_for({:value, :test_value1})
+    assert true == wait_for({:processed, :test_value1}, 10)
+    assert true == wait_for({:value, {:ok, :test_value1}})
   end
 
   # * local lock, local subscribe
@@ -98,7 +133,7 @@ defmodule CoopCache.ServerTest do
 
     {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local}, state_llls)
     # from here on, nothing should change
-    assert true == wait_for({:ref, :value_local})
+    assert true == wait_for({:ref, {:ok, :value_local}})
     snapshot_lv = snapshot_state(state_lv)
 
     {:noreply, state_rl}   = CoopCache.Server.handle_info({:lock, :key, never}, state_lv)
@@ -127,7 +162,7 @@ defmodule CoopCache.ServerTest do
     assert snapshot_rl == snapshot_llls
 
     {:noreply, state_lv}   = CoopCache.Server.handle_info({:value, :key, :value_local}, state_rl)
-    assert true == wait_for({:ref, :value_local})
+    assert true == wait_for({:ref, {:ok, :value_local}})
     snapshot_lv = snapshot_state(state_lv)
     assert []                   == snapshot_lv.locks
     assert [key: :value_local] == snapshot_lv.data
@@ -154,7 +189,7 @@ defmodule CoopCache.ServerTest do
     assert snapshot_rl == snapshot_llls
 
     {:noreply, state_rv}   = CoopCache.Server.handle_info({:value, :key, :value_remote}, state_rl)
-    assert true == wait_for({:ref, :value_remote})
+    assert true == wait_for({:ref, {:ok, :value_remote}})
     snapshot_rv = snapshot_state(state_rv)
     assert []                   == snapshot_rv.locks
     assert [key: :value_remote] == snapshot_rv.data
