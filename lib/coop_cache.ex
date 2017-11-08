@@ -14,7 +14,7 @@ defmodule CoopCache do
         [] ->
           case GenServer.call(name, {:write_or_wait, key, fun}, :infinity) do
             {:ok, value}            -> {:ok, value}
-            {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true])
+            {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity])
             {:error, error_message} -> {:error, error_message}
           end
         [{_, value}] ->

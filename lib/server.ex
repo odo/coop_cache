@@ -175,7 +175,7 @@ defmodule CoopCache.Server do
     # this is the actual computation of the value
     # we are wrapping it into a wormhole to catch all errors
     message =
-    case Wormhole.capture(fun, [crush_report: true]) do
+    case Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity]) do
       {:ok, value} ->
         {:value, key, value}
       {:error, error_message} ->
