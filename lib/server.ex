@@ -16,8 +16,8 @@ defmodule CoopCache.Server do
   end
 
   def init([name, %{memory_limit: memory_limit, cache_duration: cache_duration }]) when is_atom(name) and is_integer(memory_limit) do
-    (nodes = Application.get_env(:coop_cache, :nodes) -- [node()])
-    |> Enum.each(&:net_adm.ping/1)
+    nodes = Application.get_env(:coop_cache, :nodes) -- [node()]
+    Enum.each(nodes, &:net_adm.ping/1)
     data     = :ets.new(name, [:named_table, :set, {:read_concurrency, true}])
     activity = :ets.new(:activity, [:set])
     locks    = :ets.new(:locks,    [:set])
@@ -149,6 +149,11 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
+  def handle_info(msg, state) do
+    Logger.error("unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
   def send_to_subscribers(message, key, %{locks: locks, subs: subs}) do
     # publish data to all subscribers
     :ets.lookup(subs, key)
@@ -156,11 +161,6 @@ defmodule CoopCache.Server do
     # clean up
     :ets.delete(subs,  key)
     :ets.delete(locks, key)
-  end
-
-  def handle_info(msg, state) do
-    Logger.error("unexpected message: #{inspect(msg)}")
-    {:noreply, state}
   end
 
   def aquire_data(_, []) do
@@ -180,7 +180,7 @@ defmodule CoopCache.Server do
     # this is the actual computation of the value
     # we are wrapping it into a wormhole to catch all errors
     message =
-    case Wormhole.capture(fun, [crush_report: true]) do
+    case Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity]) do
       {:ok, value} ->
         {:value, key, value}
       {:error, error_message} ->
