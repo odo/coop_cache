@@ -69,6 +69,25 @@ iex(2)> cached(:example, :my_key) do
    {:proc_lib, :init_p_do_apply, 3, [file: 'proc_lib.erl', line: 247]}]}}
 ```
 
+If you want to skip the cache you can return `{:nocache, value}`:
+
+```elixir
+iex(1)> import CoopCache
+CoopCache
+iex(2)> cached(:example, :my_key) do
+...(2)>     {:nocache ,:off_the_record}
+...(2)> end
+{:ok, :off_the_record}
+iex(3)> cached(:example, :my_key) do
+...(3)>     :on_record
+...(3)> end
+{:ok, :on_record}
+iex(4)> cached(:example, :my_key) do
+...(4)>     :still_on_record
+...(4)> end
+{:ok, :on_record}
+```
+
 # Distribution
 
 distribution can be anabled by adding nodes to the config:
