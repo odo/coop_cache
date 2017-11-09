@@ -92,19 +92,20 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_info({:value, key, value}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit}) do
+  def handle_info({:value, key, :nocache}, state) do
+    :nocache |> send_to_subscribers(key, state)
+    {:noreply, state}
+  end
+
+  def handle_info({:value, key, value}, state = %{ data: data, memory_limit: memory_limit}) do
     # this might be a value arriving from remote
     # while the local value was already written
     case :ets.lookup(data, key) do
       [] ->
         # insert the actual data
         :ets.insert(data, {key, value})
+        {:ok, value} |> send_to_subscribers(key, state)
         # publish data to all subscribers
-        :ets.lookup(subs, key)
-        |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, {:ok, value}) end )
-        # clean up
-        :ets.delete(subs,  key)
-        :ets.delete(locks, key)
         # see if cache is full
         case (:ets.info(data, :memory) * :erlang.system_info(:wordsize)) >= memory_limit do
           true ->
@@ -118,13 +119,8 @@ defmodule CoopCache.Server do
     end
   end
 
-  def handle_info({:error, key, error_message}, state = %{ data: data, locks: locks, subs: subs, memory_limit: memory_limit}) do
-    # publish data to all subscribers
-    :ets.lookup(subs, key)
-    |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, {:error, error_message}) end )
-    # clean up
-    :ets.delete(subs,  key)
-    :ets.delete(locks, key)
+  def handle_info({:error, key, error_message}, state) do
+    {:error, error_message} |> send_to_subscribers(key, state)
     {:noreply, state}
   end
 
@@ -151,6 +147,15 @@ defmodule CoopCache.Server do
       end
     )
     {:noreply, state}
+  end
+
+  def send_to_subscribers(message, key, %{locks: locks, subs: subs}) do
+    # publish data to all subscribers
+    :ets.lookup(subs, key)
+    |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, message) end )
+    # clean up
+    :ets.delete(subs,  key)
+    :ets.delete(locks, key)
   end
 
   def handle_info(msg, state) do
