@@ -16,6 +16,7 @@ defmodule CoopCache do
             {:ok, value}            -> {:ok, value}
             {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity])
             {:error, error_message} -> {:error, error_message}
+            :nocache                -> :nocache
           end
         [{_, value}] ->
           GenServer.cast(name, {:activity, key})

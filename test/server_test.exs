@@ -44,6 +44,22 @@ defmodule CoopCache.ServerTest do
     assert true == wait_for({:value, {:ok, :test_value1}})
   end
 
+  test "nocache" do
+    CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000_000})
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :nocache}] )
+    assert true  == wait_for({:processed, :nocache})
+    assert true == wait_for({:value, :nocache})
+    # cache is still cold
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert true  == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
+    # warm cache
+    spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    assert false  == wait_for({:processed, :test_value1})
+    assert true == wait_for({:value, {:ok, :test_value1}})
+  end
+
+
   test "error while computing result" do
     # cold cache
     error_fun = fn() -> throw(:mock_error) end
