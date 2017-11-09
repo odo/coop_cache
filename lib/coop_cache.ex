@@ -14,9 +14,8 @@ defmodule CoopCache do
         [] ->
           case GenServer.call(name, {:write_or_wait, key, fun}, :infinity) do
             {:ok, value}            -> {:ok, value}
-            {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity])
+            {:error, :cache_full}   -> Wormhole.capture(fun, [crush_report: true, timeout_ms: :infinity]) |> strip_nocache
             {:error, error_message} -> {:error, error_message}
-            :nocache                -> :nocache
           end
         [{_, value}] ->
           GenServer.cast(name, {:activity, key})
@@ -24,6 +23,13 @@ defmodule CoopCache do
       end
 
     end
+  end
+
+  def strip_nocache({:ok, {:nocache, value}}) do
+    {:ok, value}
+  end
+  def strip_nocache(reply) do
+    reply
   end
 
   def start(_type, _args) do

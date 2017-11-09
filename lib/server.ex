@@ -92,8 +92,8 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_info({:value, key, :nocache}, state) do
-    :nocache |> send_to_subscribers(key, state)
+  def handle_info({:value, key, {:nocache, value}}, state) do
+    {:ok, value} |> send_to_subscribers(key, state)
     {:noreply, state}
   end
 
