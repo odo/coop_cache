@@ -31,7 +31,7 @@ defmodule CoopCache.Mixfile do
   # Type `mix help deps` for more examples and options
   defp deps() do
     [
-      {:flock, [git: "git@github.com:wooga/flock.git", tag: "0.4.1"]},
+      {:flock, [git: "git@github.com:wooga/flock.git", tag: "0.4.1", only: :test]},
       {:wormhole, [git: "https://github.com/renderedtext/wormhole.git", branch: "master"]}
     ]
   end
