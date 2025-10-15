@@ -90,7 +90,7 @@ iex(4)> cached(:example, :my_key) do
 
 # Distribution
 
-distribution can be anabled by adding nodes to the config:
+distribution can be enabled by adding nodes to the config:
 
 ```elixir
 config :coop_cache,
@@ -98,7 +98,7 @@ config :coop_cache,
   caches: [ {:example, %{ memory_limit: 50 * 1024 * 1024, cache_duration: 10 }} ]
 ```
 
-When starting coop_cache tries to connect the other nodes and then assumes that it runs the same sets of caches. At startup it copies over the current state of a random node on the cluster. Locks and writes are then distributed and coop_cache tries to do the computation for each key only once cluster-wide although this is not guaranteed.
+When starting, coop_cache tries to connect the other nodes and then assumes that it runs the same sets of caches. At startup it copies over the current state of a random node on the cluster. Locks and writes are then distributed and coop_cache tries to do the computation for each key only once cluster-wide although this is not guaranteed.
 
 # Tests
 
