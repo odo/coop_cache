@@ -1,4 +1,4 @@
-use Mix.Config
+import Config
 
 config :coop_cache,
   nodes:  [:one@localhost, :two@localhost, :three@localhost, :four@localhost, :five@localhost],
