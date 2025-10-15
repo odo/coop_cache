@@ -33,13 +33,13 @@ defmodule CoopCache do
   end
 
   def start(_type, _args) do
-    supervisor = CoopCache.Supervisor.start_link
+    {:ok, supervisor} = CoopCache.Supervisor.start_link()
     Application.get_env(:coop_cache, :caches)
-    |> Enum.each(&start_child/1)
-    supervisor
+    |> Enum.each(fn(spec) -> CoopCache.Supervisor.start_child(spec) end)
+    {:ok, supervisor}
   end
 
   def start_child({name, options}) do
-    {:ok, _} = Supervisor.start_child(:coop_cache_sup, [name, options])
+    {:ok, _} = DynamicSupervisor.start_child(:coop_cache_sup, %{id: :coop_cache_server, type: :worker, start: {CoopCache.Server, :start_link, [name, options]}})
   end
 end
