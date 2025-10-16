@@ -154,7 +154,7 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def send_to_subscribers(message, key, %{locks: locks, subs: subs}) do
+  defp send_to_subscribers(message, key, %{locks: locks, subs: subs}) do
     # publish data to all subscribers
     :ets.lookup(subs, key)
     |> Enum.each( fn({_, subscriber}) -> GenServer.reply(subscriber, message) end )
@@ -163,11 +163,11 @@ defmodule CoopCache.Server do
     :ets.delete(locks, key)
   end
 
-  def aquire_data(_, []) do
+  defp aquire_data(_, []) do
     nil
   end
 
-  def aquire_data(name, [next_node | rest]) do
+  defp aquire_data(name, [next_node | rest]) do
     case :rpc.call(next_node, __MODULE__, :data, [name]) do
       {:badrpc, _} ->
         aquire_data(name, rest)
