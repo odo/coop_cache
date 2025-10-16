@@ -107,7 +107,7 @@ defmodule CoopCache.Server do
         {:ok, value} |> send_to_subscribers(key, state)
         # publish data to all subscribers
         # see if cache is full
-        case (:ets.info(data, :memory) * :erlang.system_info(:wordsize)) >= memory_limit do
+        case full?(data, memory_limit) do
           true ->
             Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
             {:noreply, %{ state | full: true }}
@@ -134,7 +134,7 @@ defmodule CoopCache.Server do
     end
   end
 
-  def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity}) do
+  def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity, memory_limit: memory_limit}) do
     Enum.max([1, round(duration/10)]) * 1000
     |> :erlang.send_after(self(), {:clear_cache, duration})
 
@@ -146,12 +146,16 @@ defmodule CoopCache.Server do
         |> Enum.each(fn(table) -> :ets.delete(table, key) end)
       end
     )
-    {:noreply, state}
+    {:noreply, %{ state | full: full?(data, memory_limit)}}
   end
 
   def handle_info(msg, state) do
     Logger.error("unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp full?(data, memory_limit) do
+    (:ets.info(data, :memory) * :erlang.system_info(:wordsize)) >= memory_limit
   end
 
   defp send_to_subscribers(message, key, %{locks: locks, subs: subs}) do

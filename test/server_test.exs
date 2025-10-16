@@ -117,7 +117,7 @@ defmodule CoopCache.ServerTest do
     assert false == wait_for({:processed, :test_value2}, 1)
     # state should be clean
     state = GenServer.call(:test_cache, :state)
-    assert [key1: :test_value1] == state.data
+    assert [] == state.data
     assert [] == state.locks
     assert [] == state.subs
   end
@@ -125,13 +125,16 @@ defmodule CoopCache.ServerTest do
   test "cache eviction" do
     {:ok, _} = CoopCache.Server.start_link(:test_cache, %{ memory_limit: 1000000, cache_duration: 1000})
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
+    Process.sleep(1)
     assert true == wait_for({:processed, :test_value1})
     assert true == wait_for({:value, {:ok, :test_value1}})
     send(:test_cache, {:clear_cache, 1000})
+    Process.sleep(1)
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert false == wait_for({:processed, :test_value1})
     assert true  == wait_for({:value, {:ok, :test_value1}})
     send(:test_cache, {:clear_cache, 0})
+    Process.sleep(1)
     spawn(__MODULE__, :insert_and_reply, [self(), {:key1, :test_value1}] )
     assert true == wait_for({:processed, :test_value1}, 10)
     assert true == wait_for({:value, {:ok, :test_value1}})
