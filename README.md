@@ -19,8 +19,8 @@ The memory limit is intended as a safety cap and should normally never be reache
 
 The cache_duration is the the number of seconds after the last activity (read or write) until coop_cache deletes a cache entry.
 
-Please note that if computing a value results in an (errors, throws and exits) these errors are not cached.
-That means that systems can recover, but it also means that potentially expensive computation until the error will be performed repeatedly.
+Please note that if computing a value results in an error, throw or exit then nothing is cached.
+That means that systems can recover, but it also means that potentially expensive computation before the error will be performed repeatedly.
 
 # Usage
 
