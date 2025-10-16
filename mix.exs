@@ -2,12 +2,16 @@ defmodule CoopCache.Mixfile do
   use Mix.Project
 
   def project do
-    [app: :coop_cache,
-     version: "2.1.0",
-     elixir: "~> 1.0",
-     build_embedded: Mix.env == :prod,
-     start_permanent: Mix.env == :prod,
-     deps: deps()]
+    [
+      app: :coop_cache,
+      version: "2.1.0",
+      elixir: "~> 1.5",
+      description: description(),
+      package: package(),
+      build_embedded: Mix.env == :prod,
+      start_permanent: Mix.env == :prod,
+      deps: deps()
+    ]
   end
 
   # Configuration for the OTP application
@@ -33,6 +37,17 @@ defmodule CoopCache.Mixfile do
     [
       {:flock, [git: "https://github.com/odo/flock.git", only: :test]},
       {:wormhole, [git: "https://github.com/renderedtext/wormhole.git", branch: "master"]}
+    ]
+  end
+
+  defp description() do
+    "CoopCache (cooperative cache) is a specialized cache for Erlang/Elixir applications."
+  end
+
+  defp package() do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/odo/coop_cache"}
     ]
   end
 end
