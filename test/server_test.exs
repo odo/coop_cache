@@ -116,8 +116,9 @@ defmodule CoopCache.ServerTest do
     assert true  == wait_for({:value, {:ok, :test_value2}})
     assert false == wait_for({:processed, :test_value2}, 1)
     # state should be clean
+    # with the first value cached
     state = GenServer.call(:test_cache, :state)
-    assert [] == state.data
+    assert [{:key1, :test_value1}] == state.data
     assert [] == state.locks
     assert [] == state.subs
   end

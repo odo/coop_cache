@@ -97,7 +97,7 @@ defmodule CoopCache.Server do
     {:noreply, state}
   end
 
-  def handle_info({:value, key, value}, state = %{ data: data, memory_limit: memory_limit}) do
+  def handle_info({:value, key, value}, state = %{ data: data, memory_limit: memory_limit, full: full_before_insert}) do
     # this might be a value arriving from remote
     # while the local value was already written
     case :ets.lookup(data, key) do
@@ -107,11 +107,11 @@ defmodule CoopCache.Server do
         {:ok, value} |> send_to_subscribers(key, state)
         # publish data to all subscribers
         # see if cache is full
-        case full?(data, memory_limit) do
-          true ->
+        case {full_before_insert, full?(data, memory_limit)} do
+          {false, true} ->
             Logger.error("cache #{data} reached limit of #{memory_limit} Bytes.")
             {:noreply, %{ state | full: true }}
-          false ->
+          _ ->
             {:noreply, state}
         end
       _ ->
@@ -134,19 +134,27 @@ defmodule CoopCache.Server do
     end
   end
 
-  def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity, memory_limit: memory_limit}) do
+  def handle_info({:clear_cache, duration}, state = %{data: data, locks: locks, subs: subs, activity: activity, memory_limit: memory_limit, full: full_before_delete}) do
     Enum.max([1, round(duration/10)]) * 1000
     |> :erlang.send_after(self(), {:clear_cache, duration})
 
     expire_at = now() - duration
-    :ets.select(activity, [{ {:"$1", :"$2"}, [{:<, :"$2", expire_at}], [:"$1"] }])
-    |> Enum.each(
+    keys_to_delete = :ets.select(activity, [{ {:"$1", :"$2"}, [{:<, :"$2", expire_at}], [:"$1"] }])
+    Enum.each(
+      keys_to_delete,
       fn(key) ->
         [locks, subs, activity, data]
         |> Enum.each(fn(table) -> :ets.delete(table, key) end)
       end
     )
-    {:noreply, %{ state | full: full?(data, memory_limit)}}
+    case {full_before_delete, keys_to_delete} do
+      {false, _} ->
+        {:noreply, state}
+      {_, []} ->
+        {:noreply, state}
+      _ ->
+        {:noreply, %{ state | full: full?(data, memory_limit)}}
+    end
   end
 
   def handle_info(msg, state) do
